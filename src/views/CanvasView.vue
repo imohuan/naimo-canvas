@@ -42,6 +42,7 @@
               @connect-start="handleConnectStart"
               @connect-end="handleConnectEnd"
               @toggle-play="handleTogglePlay"
+              @prepare-player="handlePreparePlayer"
               @retry="handleRetryCard"
               @delete="handleDeleteCard"
             />
@@ -521,17 +522,53 @@ const handleRemoveConnection = (storyboardId: number, from: number, to: number) 
 
 // ==================== 播放器操作 ====================
 
-const handleTogglePlay = (playerId: number) => {
+const handlePreparePlayer = (playerId: number) => {
+  console.log("🔧 [CanvasView handlePreparePlayer] 手动准备播放器，playerId:", playerId);
+  canvas.preparePlayer(playerId);
+
+  // 验证准备结果
   const playerCard = canvas.findCardById(playerId) as PlayerCard;
-  if (!playerCard || playerCard.type !== "player") return;
+  console.log("🔧 [CanvasView handlePreparePlayer] 准备后的状态:", playerCard);
+};
+
+const handleTogglePlay = (playerId: number) => {
+  console.log("=== [CanvasView handleTogglePlay] 接收到播放切换事件 ===");
+  console.log("[CanvasView handleTogglePlay] playerId:", playerId);
+  console.log("[CanvasView handleTogglePlay] playerId 类型:", typeof playerId);
+
+  const playerCard = canvas.findCardById(playerId) as PlayerCard;
+
+  console.log("[CanvasView handleTogglePlay] 查找到的播放器卡片:", playerCard);
+  console.log("[CanvasView handleTogglePlay] 所有故事板:", canvas.state.storyboards);
+
+  if (!playerCard) {
+    console.error("[CanvasView handleTogglePlay] ❌ 未找到播放器卡片，playerId:", playerId);
+    return;
+  }
+
+  if (playerCard.type !== "player") {
+    console.error("[CanvasView handleTogglePlay] ❌ 卡片类型错误:", playerCard.type);
+    return;
+  }
+
+  console.log("[CanvasView handleTogglePlay] 播放器当前状态:", {
+    isReady: playerCard.isReady,
+    isPlaying: playerCard.isPlaying,
+    currentFrame: playerCard.currentFrame,
+    playlistLength: playerCard.playlist?.length || 0,
+  });
 
   if (playerCard.isPlaying) {
+    console.log("[CanvasView handleTogglePlay] ⏸️ 停止播放");
     canvas.stopPlayback(playerId);
   } else {
+    console.log("[CanvasView handleTogglePlay] ▶️ 开始播放");
     canvas.startPlayback(playerId, (frame) => {
-      console.log("播放帧:", frame);
+      console.log(`[CanvasView handleTogglePlay] 🎬 播放第 ${frame} 帧`);
     });
   }
+
+  console.log("[CanvasView handleTogglePlay] 播放切换完成");
 };
 
 const handleExecuteStoryboard = (storyboardId: number) => {
@@ -611,9 +648,20 @@ const confirmExecute = async () => {
     alert(`生图任务已完成，共生成 ${imageCards.length} 张图片`);
 
     // 生图完成后，准备播放器
+    console.log("[confirmExecute] 开始准备播放器");
     const playerCard = storyboard.cards.find((c) => c.type === "player");
+    console.log("[confirmExecute] 找到播放器卡片:", playerCard);
+
     if (playerCard) {
+      console.log(`[confirmExecute] 调用 preparePlayer，playerId: ${playerCard.id}`);
       canvas.preparePlayer(playerCard.id);
+      console.log("[confirmExecute] preparePlayer 调用完成");
+
+      // 再次检查播放器状态
+      const updatedPlayerCard = canvas.findCardById(playerCard.id);
+      console.log("[confirmExecute] 播放器准备后的状态:", updatedPlayerCard);
+    } else {
+      console.warn("[confirmExecute] ❌ 未找到播放器卡片");
     }
   } catch (error) {
     console.error("[confirmExecute] 批量生图失败:", error);
@@ -813,20 +861,12 @@ const handleGenerate = async (prompt: string, charFile: File | null, sceneFile: 
 // ==================== 初始化加载 ====================
 
 /**
- * 从数据创建故事板
+ * 从数据创建或更新故事板（融合逻辑）
  */
-const createStoryboardFromData = (bookId: string, items: any[], index: number) => {
-  // 使用配置文件中的值
-  const { imageCard, playerCard, cardPadding, imageCardsPerRow, leftPanelWidth, minPanelWidth } =
-    canvasConfig;
+const mergeOrCreateStoryboardFromData = (bookId: string, items: any[]) => {
+  const split_char = "|!!!|";
 
-  const IMAGE_CARD_WIDTH = imageCard.width;
-  const PLAYER_CARD_WIDTH = playerCard.width;
-
-  // 计算故事板位置（横向排列，间距 100px）
-  const initialY = 100;
-
-  // 查找 order_index="0" 的元数据项（order_index 是字符串）
+  // 查找 order_index="0" 的元数据项
   const metadataItem = items.find(
     (item: any) =>
       item.order_index === "0" ||
@@ -835,10 +875,8 @@ const createStoryboardFromData = (bookId: string, items: any[], index: number) =
       item.orderIndex === 0
   );
 
-  // 尝试多种方式读取 metadata
+  // 尝试解析 metadata
   let metadata = metadataItem?.metadata || {};
-
-  // 如果 metadata 是字符串，尝试解析
   if (typeof metadata === "string") {
     try {
       metadata = JSON.parse(metadata);
@@ -848,34 +886,74 @@ const createStoryboardFromData = (bookId: string, items: any[], index: number) =
     }
   }
 
-  // 从 metadata 中提取信息，如果没有则使用默认值
+  // 从 metadata 中提取信息
   const title = metadata.title || metadataItem?.title || items[0]?.title || `项目 ${bookId}`;
   const scriptText = metadata.scriptText || metadataItem?.script || items[0]?.script || "";
   const referenceImages = metadata.reference_images || metadataItem?.reference_images || "";
 
-  // 解析 reference_images，按分隔符拆分为 file_id 数组
-  const split_char = "|!!!|";
+  // 解析 reference_images
   let characterFileId: string | undefined;
   let sceneFileId: string | undefined;
 
   if (referenceImages && typeof referenceImages === "string") {
     const fileIds = referenceImages.split(split_char).filter(Boolean);
-    console.log("[createStoryboardFromData] 解析 reference_images:", fileIds);
+    console.log("[mergeOrCreateStoryboardFromData] 解析 reference_images:", fileIds);
 
-    if (fileIds.length > 0) {
-      characterFileId = fileIds[0];
-      console.log("[createStoryboardFromData] 角色参考 file_id:", characterFileId);
-    }
-
-    if (fileIds.length > 1) {
-      sceneFileId = fileIds[1];
-      console.log("[createStoryboardFromData] 场景参考 file_id:", sceneFileId);
-    }
+    if (fileIds.length > 0) characterFileId = fileIds[0];
+    if (fileIds.length > 1) sceneFileId = fileIds[1];
   }
+
+  // 构建卡片数据
+  const cardsData = items.map((item: any, idx: number) => {
+    // 处理图片 URL：如果 output_images 存在，split 并获取最后一个
+    let imageUrl = item.image_url || item.imageUrl || item.image || item.url || "";
+
+    if (item.output_images && typeof item.output_images === "string") {
+      const images = item.output_images.split(split_char).filter(Boolean);
+      if (images.length > 0) {
+        imageUrl = images[images.length - 1];
+        console.log(`[mergeOrCreateStoryboardFromData] 分镜 ${idx + 1} 图片链接:`, imageUrl);
+      }
+    }
+
+    return {
+      shotId: item.id,
+      title: item.title || item.name || `分镜 ${idx + 1}`,
+      description: item.prompt || item.description || item.text || "",
+      cameraMovement: item.camera_movement || item.cameraMovement || item.camera,
+      imageUrl,
+      rawData: item,
+    };
+  });
+
+  // 尝试融合数据
+  const mergedStoryboard = canvas.mergeOrCreateStoryboard(bookId, {
+    title,
+    scriptText,
+    characterReferenceImageFileId: characterFileId,
+    sceneReferenceImageFileId: sceneFileId,
+    cards: cardsData,
+  });
+
+  if (mergedStoryboard) {
+    console.log(`[mergeOrCreateStoryboardFromData] 已融合故事板，bookId: ${bookId}`);
+    // 融合成功，不需要重新布局（保留用户调整的位置）
+    return;
+  }
+
+  // 如果返回 null，表示需要创建新故事板
+  console.log(`[mergeOrCreateStoryboardFromData] 创建新故事板，bookId: ${bookId}`);
+
+  const { imageCard, playerCard, cardPadding, imageCardsPerRow, leftPanelWidth, minPanelWidth } =
+    canvasConfig;
+
+  const IMAGE_CARD_WIDTH = imageCard.width;
+  const PLAYER_CARD_WIDTH = playerCard.width;
+
+  const initialY = 100;
 
   // 计算故事板宽度（用于初始化和横向排列）
   const actualShotColumns = Math.min(items.length, imageCardsPerRow);
-  // 网格宽度 = 列数 * 卡片宽度 + (列数 - 1) * 间距
   const actualImageGridWidth =
     actualShotColumns > 0
       ? actualShotColumns * IMAGE_CARD_WIDTH + (actualShotColumns - 1) * cardPadding
@@ -886,8 +964,9 @@ const createStoryboardFromData = (bookId: string, items: any[], index: number) =
   );
   const actualContainerWidth = leftPanelWidth + actualShotPanelWidth;
 
-  // 计算故事板的 X 坐标
-  const initialX = index * (actualContainerWidth + 100);
+  // 计算故事板的 X 坐标（需要考虑已存在的故事板）
+  const existingStoryboardsCount = canvas.state.storyboards.length;
+  const initialX = existingStoryboardsCount * (actualContainerWidth + 100);
 
   // 创建故事板
   const newStoryboard = canvas.addStoryboard({
@@ -905,34 +984,23 @@ const createStoryboardFromData = (bookId: string, items: any[], index: number) =
 
   if (!newStoryboard) return;
 
-  // 创建分镜卡片（初始位置为 0, 0，稍后由 handleResetLayout 统一布局）
-  items.forEach((item: any, idx: number) => {
-    // 处理图片 URL：如果 output_images 存在，split 并获取最后一个
-    let imageUrl = item.image_url || item.imageUrl || item.image || item.url || "";
-
-    if (item.output_images && typeof item.output_images === "string") {
-      const images = item.output_images.split(split_char).filter(Boolean);
-      if (images.length > 0) {
-        imageUrl = images[images.length - 1]; // 获取最后一个图片链接
-        console.log(`[createStoryboardFromData] 分镜 ${idx + 1} 图片链接:`, imageUrl);
-      }
-    }
-
+  // 创建分镜卡片
+  cardsData.forEach((cardData) => {
     canvas.addCard(newStoryboard.id, {
       type: "image" as const,
       x: 0,
       y: 0,
-      title: item.title || item.name || `分镜 ${idx + 1}`,
-      description: item.prompt || item.description || item.text || "",
-      cameraMovement: item.camera_movement || item.cameraMovement || item.camera,
+      title: cardData.title,
+      description: cardData.description,
+      cameraMovement: cardData.cameraMovement,
       isLoading: false,
-      imageUrl,
-      shotId: item.id,
-      rawData: item,
+      imageUrl: cardData.imageUrl || "",
+      shotId: cardData.shotId,
+      rawData: cardData.rawData,
     } as Omit<ImageCard, "id">);
   });
 
-  // 添加播放器卡片（初始位置为 0, 0，稍后由 handleResetLayout 统一布局）
+  // 添加播放器卡片
   canvas.addCard(newStoryboard.id, {
     type: "player" as const,
     x: 0,
@@ -943,15 +1011,15 @@ const createStoryboardFromData = (bookId: string, items: any[], index: number) =
     currentFrame: 0,
   } as Omit<PlayerCard, "id">);
 
-  // 统一布局：调用 handleResetLayout 来计算并设置所有卡片的正确位置
+  // 统一布局
   handleResetLayout(newStoryboard.id);
 
-  // 自动连接节点：按索引顺序连接所有卡片
+  // 自动连接节点
   autoConnectCards(newStoryboard.id);
 };
 
 /**
- * 加载初始数据
+ * 加载初始数据（融合逻辑）
  */
 const loadInitialData = async () => {
   isThinking.value = true;
@@ -960,12 +1028,21 @@ const loadInitialData = async () => {
     const groupedData = await getAllDataGroupedByBookId();
     console.log("加载的数据:", groupedData);
 
-    // 按 book_id 创建故事板
+    // 按 book_id 融合或创建故事板
     const bookIds = Object.keys(groupedData);
-    bookIds.forEach((bookId, index) => {
+    bookIds.forEach((bookId) => {
       const items = groupedData[bookId];
       if (items && items.length > 0) {
-        createStoryboardFromData(bookId, items, index);
+        mergeOrCreateStoryboardFromData(bookId, items);
+      }
+    });
+
+    // 删除在新数据中不存在的故事板
+    const existingStoryboards = [...canvas.state.storyboards];
+    existingStoryboards.forEach((storyboard) => {
+      if (storyboard.bookId && !groupedData[storyboard.bookId]) {
+        console.log(`[loadInitialData] 删除不存在的故事板，bookId: ${storyboard.bookId}`);
+        canvas.removeStoryboard(storyboard.id);
       }
     });
 

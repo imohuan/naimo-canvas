@@ -3,7 +3,7 @@
     :id="`card-${card.id}`"
     :class="[
       'card absolute rounded-lg overflow-hidden select-none border flex flex-col',
-      card.type === 'player' ? 'w-[576px] h-[436px]' : 'w-72 h-[380px]',
+      card.type === 'player' ? 'w-[576px]' : 'w-72 h-[380px]',
       theme.cardBg,
       theme.cardBorder,
       theme.cardShadow,
@@ -30,84 +30,109 @@
 
     <!-- 播放器卡片 -->
     <template v-if="card.type === 'player'">
+      <!-- 图片区域 - 自适应内容高度，保持16:9宽高比 -->
       <div
         :class="[
-          'image-container w-full h-96 flex items-center justify-center relative group cursor-grab shrink-0',
+          'image-container w-full relative group cursor-grab',
           theme.storyboardPanel,
           isDragging && 'cursor-grabbing',
         ]"
+        style="aspect-ratio: 16/9"
+        @mousedown="handlePlayerImageMouseDown"
       >
-        <ImagePreview
-          v-if="card.isReady && currentThumbnail"
-          :src="currentThumbnail"
-          alt="播放器预览"
-          container-class="w-full h-full"
-        />
-        <!-- 未执行状态 -->
-        <div v-else class="flex flex-col items-center space-y-4 pointer-events-none">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="64"
-            height="64"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            :class="theme.textTertiary"
-          >
-            <polygon points="5 3 19 12 5 21 5 3" />
-          </svg>
-          <div class="text-center">
-            <p :class="['font-semibold mb-1', theme.textSecondary]">播放器待机中</p>
-            <p :class="['text-xs', theme.textTertiary]">连接卡片并点击执行</p>
-          </div>
+        <!-- 图片预览 - 保持宽高比 -->
+        <div class="w-full h-full flex items-center justify-center bg-black/5">
+          <ImagePreview
+            v-if="card.isReady && currentThumbnail"
+            :src="currentThumbnail"
+            alt="播放器预览"
+            container-class="w-full h-full flex items-center justify-center"
+            image-class="!object-contain max-w-full max-h-full"
+          />
         </div>
 
-        <!-- 播放按钮（仅在准备就绪时显示） -->
+        <!-- 播放按钮遮罩层（仅在有图片时显示，且不阻止拖拽） -->
         <div
-          v-if="card.isReady"
-          class="absolute inset-0 bg-black/30 flex items-center justify-center pointer-events-none"
+          v-if="card.isReady && currentThumbnail"
+          class="absolute inset-0 flex items-center justify-center transition-all group pointer-events-none"
+          :class="card.isPlaying ? '' : 'bg-black/20 hover:bg-black/40'"
         >
+          <!-- 调试标记 -->
+          <div class="absolute top-2 left-2 bg-red-500 text-white text-xs px-2 py-1 rounded">
+            {{ card.isReady ? "已就绪" : "未就绪" }}
+          </div>
+
+          <!-- 播放按钮 - 未播放时显示，播放中隐藏 -->
           <button
-            class="player-card-play-button text-gray-400 hover:scale-110 hover:text-white pointer-events-auto"
-            @click.stop="$emit('toggle-play', card.id)"
+            v-if="!card.isPlaying"
+            class="pointer-events-auto bg-black/40 hover:bg-black/60 rounded-full p-6 transition-all hover:scale-110"
+            @click.stop="handlePlayClick"
+            @mousedown.stop
+            title="点击播放"
           >
-            <!-- 播放中 - 显示暂停图标（hover 时） -->
-            <div v-if="card.isPlaying" class="opacity-0 group-hover:opacity-100">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="64"
-                height="64"
-                fill="currentColor"
-                viewBox="0 0 16 16"
-              >
-                <path
-                  d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5zm5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5z"
-                />
-              </svg>
-            </div>
-            <!-- 未播放 - 显示播放图标 -->
+            <!-- 简洁的播放三角形图标 -->
             <svg
-              v-else
+              class="text-white"
               xmlns="http://www.w3.org/2000/svg"
-              width="64"
-              height="64"
+              width="48"
+              height="48"
+              viewBox="0 0 24 24"
               fill="currentColor"
-              viewBox="0 0 16 16"
             >
-              <path
-                d="M10.804 8 5 4.633v6.734L10.804 8zM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8zm15 0a7 7 0 1 0-14 0 7 7 0 0 0 14 0z"
-              />
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </button>
+
+          <!-- 播放中时，hover 显示暂停按钮 -->
+          <button
+            v-else
+            class="pointer-events-auto bg-black/40 hover:bg-black/60 rounded-full p-6 transition-all opacity-0 group-hover:opacity-100 hover:scale-110"
+            @click.stop="handlePlayClick"
+            @mousedown.stop
+            title="点击暂停"
+          >
+            <!-- 简洁的暂停图标 -->
+            <svg
+              class="text-white"
+              xmlns="http://www.w3.org/2000/svg"
+              width="48"
+              height="48"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
             </svg>
           </button>
         </div>
+
+        <!-- 未就绪状态的调试标记 -->
+        <div
+          v-if="!card.isReady || !currentThumbnail"
+          class="absolute top-2 left-2 bg-red-500 text-white text-xs px-2 py-1 rounded pointer-events-none"
+        >
+          未就绪
+        </div>
       </div>
 
+      <!-- 底部控制区域 - 固定高度不收缩 -->
       <div :class="['p-3 shrink-0', theme.storyboardPanel]">
-        <h3 :class="['font-semibold truncate', theme.textPrimary]">播放器</h3>
-        <p :class="['text-xs', theme.textSecondary]">点击上方卡片连接器创建播放列表</p>
+        <div class="flex justify-between items-center">
+          <div class="flex-1">
+            <h3 :class="['font-semibold truncate', theme.textPrimary]">播放器</h3>
+            <p :class="['text-xs mt-1', theme.textSecondary]">
+              {{ card.isReady ? `${card.playlist.length} 张图片已就绪` : "连接卡片并点击执行" }}
+            </p>
+          </div>
+          <!-- 手动准备播放器按钮（仅在未就绪时显示） -->
+          <button
+            v-if="!card.isReady"
+            class="bg-blue-500 hover:bg-blue-600 text-white text-xs py-1 px-2 rounded shrink-0"
+            @click.stop="manualPreparePlayer"
+            title="根据连接线准备播放列表"
+          >
+            🔧 准备
+          </button>
+        </div>
       </div>
     </template>
 
@@ -275,6 +300,7 @@ interface Emits {
   (e: "connect-start", cardId: number): void;
   (e: "connect-end", cardId: number): void;
   (e: "toggle-play", cardId: number): void;
+  (e: "prepare-player", cardId: number): void;
   (e: "retry", cardId: number, newDescription: string): void;
   (e: "delete", cardId: number): void;
 }
@@ -291,9 +317,23 @@ const textareaRef = ref<HTMLTextAreaElement>();
 const currentThumbnail = computed(() => {
   if (props.card.type !== "player") return "";
   const playerCard = props.card as PlayerCard;
+
+  console.log("[CanvasCard currentThumbnail] 播放器状态:", {
+    cardId: props.card.id,
+    isReady: playerCard.isReady,
+    isPlaying: playerCard.isPlaying,
+    currentFrame: playerCard.currentFrame,
+    playlistLength: playerCard.playlist.length,
+    thumbnailUrl: playerCard.thumbnailUrl,
+  });
+
   if (playerCard.isPlaying && playerCard.playlist.length > 0) {
-    return playerCard.playlist[playerCard.currentFrame]?.imageUrl || "";
+    const url = playerCard.playlist[playerCard.currentFrame]?.imageUrl || "";
+    console.log(`[CanvasCard currentThumbnail] 播放中，显示第 ${playerCard.currentFrame} 帧:`, url);
+    return url;
   }
+
+  console.log("[CanvasCard currentThumbnail] 未播放，显示缩略图:", playerCard.thumbnailUrl);
   return playerCard.thumbnailUrl || "";
 });
 
@@ -309,6 +349,61 @@ watch(
 );
 
 // 方法
+const manualPreparePlayer = () => {
+  console.log("🔧 手动准备播放器，卡片 ID:", props.card.id);
+  emit("prepare-player", props.card.id);
+};
+
+const handlePlayerImageMouseDown = (e: MouseEvent) => {
+  const target = e.target as HTMLElement;
+
+  // 如果点击的是播放按钮或其子元素，不触发拖拽
+  if (target.closest("button")) {
+    return;
+  }
+
+  // 触发拖拽
+  e.preventDefault();
+  e.stopPropagation();
+  isDragging.value = true;
+  emit("drag-start", props.card.id, e);
+
+  const onMouseUp = () => {
+    isDragging.value = false;
+    window.removeEventListener("mouseup", onMouseUp);
+  };
+
+  window.addEventListener("mouseup", onMouseUp);
+};
+
+const handlePlayClick = (e: MouseEvent) => {
+  console.log("🔥🔥🔥 [CanvasCard handlePlayClick] 播放按钮被点击了！");
+  e.preventDefault();
+  e.stopPropagation();
+
+  console.log("=== [CanvasCard handlePlayClick] 播放按钮被点击 ===");
+  console.log("[CanvasCard handlePlayClick] 事件对象:", e);
+  console.log("[CanvasCard handlePlayClick] 卡片 ID:", props.card.id);
+  console.log("[CanvasCard handlePlayClick] 卡片类型:", props.card.type);
+
+  if (props.card.type === "player") {
+    const playerCard = props.card as PlayerCard;
+    console.log("[CanvasCard handlePlayClick] 播放器完整信息:", {
+      id: props.card.id,
+      type: props.card.type,
+      isReady: playerCard.isReady,
+      isPlaying: playerCard.isPlaying,
+      currentFrame: playerCard.currentFrame,
+      playlistLength: playerCard.playlist?.length || 0,
+      playlist: playerCard.playlist,
+    });
+  }
+
+  console.log("[CanvasCard handlePlayClick] 准备触发 toggle-play 事件");
+  emit("toggle-play", props.card.id);
+  console.log("[CanvasCard handlePlayClick] toggle-play 事件已触发");
+};
+
 const handleTextareaWheel = (e: WheelEvent) => {
   const textarea = textareaRef.value;
   if (!textarea) return;
@@ -331,12 +426,10 @@ const handleTextareaWheel = (e: WheelEvent) => {
 };
 
 const handleMouseDown = (e: MouseEvent) => {
+  const target = e.target as HTMLElement;
+
   // 忽略按钮、连接点、文本域的点击
-  if (
-    (e.target as HTMLElement).closest("button") ||
-    (e.target as HTMLElement).closest(".connector-dot") ||
-    (e.target as HTMLElement).closest("textarea")
-  ) {
+  if (target.closest("button") || target.closest(".connector-dot") || target.closest("textarea")) {
     return;
   }
 

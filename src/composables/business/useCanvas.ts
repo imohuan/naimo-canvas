@@ -2,7 +2,9 @@
  * 画布状态管理
  */
 
-import { reactive, computed } from "vue";
+import { reactive, computed, watch } from "vue";
+import { useLocalStorage } from "@vueuse/core";
+import { canvasConfig } from "@/config";
 import type {
   CanvasState,
   Storyboard,
@@ -12,14 +14,21 @@ import type {
   Connection,
 } from "@/typings/canvas";
 
+// 使用 LocalStorage 持久化数据
+const persistedStoryboards = useLocalStorage<Storyboard[]>("canvas-storyboards", []);
+const persistedNextStoryboardId = useLocalStorage<number>("canvas-next-storyboard-id", 0);
+const persistedNextCardId = useLocalStorage<number>("canvas-next-card-id", 0);
+const persistedPan = useLocalStorage<{ x: number; y: number }>("canvas-pan", { x: 0, y: 0 });
+const persistedZoom = useLocalStorage<number>("canvas-zoom", 1);
+
 const state = reactive<CanvasState>({
-  pan: { x: 0, y: 0 },
-  zoom: 1,
+  pan: persistedPan.value,
+  zoom: persistedZoom.value,
   isPanning: false,
   panStart: { x: 0, y: 0 },
-  storyboards: [],
-  nextStoryboardId: 0,
-  nextCardId: 0,
+  storyboards: persistedStoryboards.value,
+  nextStoryboardId: persistedNextStoryboardId.value,
+  nextCardId: persistedNextCardId.value,
   activeModifyCardId: null,
   activeExecuteStoryboardId: null,
   characterReferenceImage: null,
@@ -28,6 +37,46 @@ const state = reactive<CanvasState>({
   connectionStart: null,
   playbackIntervals: {},
 });
+
+// 监听 storyboards 变化并自动保存到 LocalStorage
+watch(
+  () => state.storyboards,
+  (newValue) => {
+    persistedStoryboards.value = newValue;
+  },
+  { deep: true }
+);
+
+// 监听 ID 计数器变化并自动保存
+watch(
+  () => state.nextStoryboardId,
+  (newValue) => {
+    persistedNextStoryboardId.value = newValue;
+  }
+);
+
+watch(
+  () => state.nextCardId,
+  (newValue) => {
+    persistedNextCardId.value = newValue;
+  }
+);
+
+// 监听画布平移和缩放变化并自动保存
+watch(
+  () => state.pan,
+  (newValue) => {
+    persistedPan.value = newValue;
+  },
+  { deep: true }
+);
+
+watch(
+  () => state.zoom,
+  (newValue) => {
+    persistedZoom.value = newValue;
+  }
+);
 
 export function useCanvas() {
   // ==================== 画布变换 ====================
@@ -108,12 +157,14 @@ export function useCanvas() {
     if (index !== -1) {
       // 清理播放器定时器
       const storyboard = state.storyboards[index];
-      storyboard.cards.forEach((card) => {
-        if (card.type === "player" && state.playbackIntervals[card.id]) {
-          clearInterval(state.playbackIntervals[card.id]);
-          delete state.playbackIntervals[card.id];
-        }
-      });
+      if (storyboard) {
+        storyboard.cards.forEach((card) => {
+          if (card.type === "player" && state.playbackIntervals[card.id]) {
+            clearInterval(state.playbackIntervals[card.id]);
+            delete state.playbackIntervals[card.id];
+          }
+        });
+      }
       state.storyboards.splice(index, 1);
     }
   };
@@ -177,12 +228,21 @@ export function useCanvas() {
 
   /** 更新卡片 */
   const updateCard = (cardId: number, updates: Partial<Card>) => {
+    console.log(`[updateCard] 更新卡片 ${cardId}:`, updates);
+
     const storyboard = findStoryboardByCardId(cardId);
-    if (!storyboard) return;
+    if (!storyboard) {
+      console.error(`[updateCard] ❌ 未找到卡片 ${cardId} 所属的故事板`);
+      return;
+    }
 
     const card = storyboard.cards.find((c) => c.id === cardId);
     if (card) {
+      console.log(`[updateCard] 找到卡片，更新前状态:`, card);
       Object.assign(card, updates);
+      console.log(`[updateCard] 更新后状态:`, card);
+    } else {
+      console.error(`[updateCard] ❌ 在故事板中未找到卡片 ${cardId}`);
     }
   };
 
@@ -199,14 +259,45 @@ export function useCanvas() {
     const storyboard = findStoryboardById(storyboardId);
     if (!storyboard) return;
 
-    // 检查是否已存在
+    // 检查是否已存在相同的连接
     const exists = storyboard.connections.some(
       (conn) => conn.from === connection.from && conn.to === connection.to
     );
 
-    if (!exists) {
-      storyboard.connections.push(connection);
+    if (exists) {
+      console.log("[addConnection] 连接已存在，跳过");
+      return;
     }
+
+    // 一个输出端口只能连接一条线：删除该 from 节点的所有现有连接
+    const existingFromConnections = storyboard.connections.filter(
+      (conn) => conn.from === connection.from
+    );
+
+    if (existingFromConnections.length > 0) {
+      console.log(
+        `[addConnection] 删除节点 ${connection.from} 的 ${existingFromConnections.length} 条现有输出连接`
+      );
+      storyboard.connections = storyboard.connections.filter(
+        (conn) => conn.from !== connection.from
+      );
+    }
+
+    // 一个输入端口只能连接一条线：删除该 to 节点的所有现有连接
+    const existingToConnections = storyboard.connections.filter(
+      (conn) => conn.to === connection.to
+    );
+
+    if (existingToConnections.length > 0) {
+      console.log(
+        `[addConnection] 删除节点 ${connection.to} 的 ${existingToConnections.length} 条现有输入连接`
+      );
+      storyboard.connections = storyboard.connections.filter((conn) => conn.to !== connection.to);
+    }
+
+    // 添加新连接
+    console.log(`[addConnection] 添加新连接: ${connection.from} -> ${connection.to}`);
+    storyboard.connections.push(connection);
   };
 
   /** 删除连接 */
@@ -224,7 +315,28 @@ export function useCanvas() {
   /** 开始播放 */
   const startPlayback = (playerId: number, onFrame: (frame: number) => void) => {
     const card = findCardById(playerId) as PlayerCard;
-    if (!card || card.type !== "player" || !card.isReady || card.playlist.length === 0) return;
+
+    console.log("[startPlayback] 开始播放，playerId:", playerId);
+    console.log("[startPlayback] 播放器卡片:", card);
+
+    if (!card || card.type !== "player") {
+      console.warn("[startPlayback] 卡片不存在或类型不是播放器");
+      return;
+    }
+
+    if (!card.isReady) {
+      console.warn("[startPlayback] 播放器未准备好");
+      return;
+    }
+
+    if (card.playlist.length === 0) {
+      console.warn("[startPlayback] 播放列表为空");
+      return;
+    }
+
+    console.log(
+      `[startPlayback] 播放列表长度: ${card.playlist.length}, 帧率: ${canvasConfig.player.frameRate}ms, 循环: ${canvasConfig.player.loop}`
+    );
 
     updateCard(playerId, { isPlaying: true, currentFrame: 0 });
 
@@ -236,31 +348,63 @@ export function useCanvas() {
       }
 
       const nextFrame = currentCard.currentFrame + 1;
+
       if (nextFrame >= currentCard.playlist.length) {
-        stopPlayback(playerId);
+        // 播放完成
+        if (canvasConfig.player.loop) {
+          // 循环播放：回到第一帧
+          console.log("[startPlayback] 循环播放，回到第一帧");
+          updateCard(playerId, { currentFrame: 0 });
+          onFrame(0);
+        } else {
+          // 不循环：停止播放
+          console.log("[startPlayback] 播放完成，停止");
+          stopPlayback(playerId);
+        }
       } else {
+        // 继续播放下一帧
+        console.log(`[startPlayback] 播放第 ${nextFrame} 帧`);
         updateCard(playerId, { currentFrame: nextFrame });
         onFrame(nextFrame);
       }
-    }, 2000);
+    }, canvasConfig.player.frameRate);
   };
 
   /** 停止播放 */
   const stopPlayback = (playerId: number) => {
+    console.log("[stopPlayback] 停止播放，playerId:", playerId);
+
     if (state.playbackIntervals[playerId]) {
+      console.log("[stopPlayback] 清除播放定时器");
       clearInterval(state.playbackIntervals[playerId]);
       delete state.playbackIntervals[playerId];
+    } else {
+      console.log("[stopPlayback] 没有找到播放定时器");
     }
+
+    console.log("[stopPlayback] 重置播放状态");
     updateCard(playerId, { isPlaying: false, currentFrame: 0 });
+    console.log("[stopPlayback] 停止播放完成");
   };
 
   /** 准备播放器 */
   const preparePlayer = (playerId: number) => {
+    console.log("[preparePlayer] 准备播放器，playerId:", playerId);
+
     const storyboard = findStoryboardByCardId(playerId);
-    if (!storyboard) return;
+    if (!storyboard) {
+      console.warn("[preparePlayer] 未找到故事板");
+      return;
+    }
 
     const playerCard = storyboard.cards.find((c) => c.id === playerId) as PlayerCard;
-    if (!playerCard || playerCard.type !== "player") return;
+    if (!playerCard || playerCard.type !== "player") {
+      console.warn("[preparePlayer] 播放器卡片不存在或类型错误");
+      return;
+    }
+
+    console.log("[preparePlayer] 故事板连接线:", storyboard.connections);
+    console.log("[preparePlayer] 故事板卡片:", storyboard.cards);
 
     // 构建播放列表（从连接线倒推）
     const playlist: ImageCard[] = [];
@@ -268,27 +412,36 @@ export function useCanvas() {
 
     while (currentNodeId !== undefined) {
       const incomingConnection = storyboard.connections.find((c) => c.to === currentNodeId);
+      console.log(`[preparePlayer] 查找连接到节点 ${currentNodeId} 的连接:`, incomingConnection);
+
       if (!incomingConnection) break;
 
       const fromCard = storyboard.cards.find((c) => c.id === incomingConnection.from);
+      console.log(`[preparePlayer] 找到源卡片 (ID: ${incomingConnection.from}):`, fromCard);
+
       if (fromCard && fromCard.type === "image" && fromCard.imageUrl) {
         playlist.unshift(fromCard as ImageCard);
+        console.log(`[preparePlayer] 添加图片到播放列表: ${fromCard.title}`);
       }
       currentNodeId = incomingConnection.from;
     }
+
+    console.log(`[preparePlayer] 播放列表构建完成，共 ${playlist.length} 张图片`);
 
     if (playlist.length > 0) {
       updateCard(playerId, {
         isReady: true,
         playlist,
-        thumbnailUrl: playlist[0].imageUrl,
+        thumbnailUrl: playlist[0]?.imageUrl,
       });
+      console.log("[preparePlayer] 播放器已准备就绪");
     } else {
       updateCard(playerId, {
         isReady: false,
         playlist: [],
         thumbnailUrl: undefined,
       });
+      console.warn("[preparePlayer] 播放列表为空，播放器未准备好");
     }
   };
 
@@ -340,6 +493,122 @@ export function useCanvas() {
   /** 设置激活的执行故事板 ID */
   const setActiveExecuteStoryboardId = (id: number | null) => {
     state.activeExecuteStoryboardId = id;
+  };
+
+  // ==================== 数据融合 ====================
+
+  /**
+   * 融合或创建故事板
+   * 如果已存在相同 bookId 的故事板，则更新其数据；否则创建新故事板
+   */
+  const mergeOrCreateStoryboard = (
+    bookId: string,
+    newData: {
+      title: string;
+      scriptText: string;
+      characterReferenceImageFileId?: string;
+      sceneReferenceImageFileId?: string;
+      cards: Array<{
+        shotId?: string | number;
+        title: string;
+        description: string;
+        cameraMovement?: string;
+        imageUrl?: string;
+        rawData?: any;
+      }>;
+    }
+  ) => {
+    // 查找是否已存在相同 bookId 的故事板
+    const existingStoryboard = state.storyboards.find((sb) => sb.bookId === bookId);
+
+    if (existingStoryboard) {
+      console.log(`[mergeOrCreateStoryboard] 发现已存在的故事板，bookId: ${bookId}，开始融合数据`);
+
+      // 更新元数据（但保留位置、尺寸等用户自定义信息）
+      existingStoryboard.title = newData.title;
+      existingStoryboard.scriptText = newData.scriptText;
+      existingStoryboard.characterReferenceImageFileId = newData.characterReferenceImageFileId;
+      existingStoryboard.sceneReferenceImageFileId = newData.sceneReferenceImageFileId;
+
+      // 融合卡片数据
+      const existingImageCards = existingStoryboard.cards.filter((c) => c.type === "image");
+      const existingPlayerCards = existingStoryboard.cards.filter((c) => c.type === "player");
+
+      // 创建 shotId 到现有卡片的映射
+      const existingCardsByShotId = new Map<string | number, ImageCard>();
+      existingImageCards.forEach((card) => {
+        const imageCard = card as ImageCard;
+        if (imageCard.shotId !== undefined) {
+          existingCardsByShotId.set(imageCard.shotId, imageCard);
+        }
+      });
+
+      // 处理新数据中的卡片
+      const updatedCardIds = new Set<number>();
+      newData.cards.forEach((newCardData) => {
+        const shotId = newCardData.shotId;
+        if (shotId !== undefined) {
+          const existingCard = existingCardsByShotId.get(shotId);
+          if (existingCard) {
+            // 更新已存在的卡片（保留位置信息，只更新内容）
+            console.log(`[mergeOrCreateStoryboard] 更新卡片 shotId: ${shotId}`);
+            existingCard.title = newCardData.title;
+            existingCard.description = newCardData.description;
+            existingCard.cameraMovement = newCardData.cameraMovement;
+            if (newCardData.imageUrl) {
+              existingCard.imageUrl = newCardData.imageUrl;
+            }
+            existingCard.rawData = newCardData.rawData;
+            updatedCardIds.add(existingCard.id);
+          } else {
+            // 新增卡片
+            console.log(`[mergeOrCreateStoryboard] 新增卡片 shotId: ${shotId}`);
+            const newCard = addCard(existingStoryboard.id, {
+              type: "image" as const,
+              x: 0,
+              y: 0,
+              title: newCardData.title,
+              description: newCardData.description,
+              cameraMovement: newCardData.cameraMovement,
+              isLoading: false,
+              imageUrl: newCardData.imageUrl || "",
+              shotId,
+              rawData: newCardData.rawData,
+            } as Omit<ImageCard, "id">);
+            if (newCard) {
+              updatedCardIds.add(newCard.id);
+            }
+          }
+        }
+      });
+
+      // 删除不在新数据中的图片卡片
+      const cardsToRemove = existingImageCards.filter((card) => !updatedCardIds.has(card.id));
+      cardsToRemove.forEach((card) => {
+        console.log(`[mergeOrCreateStoryboard] 删除卡片 id: ${card.id}`);
+        removeCard(card.id);
+      });
+
+      // 确保播放器卡片存在
+      if (existingPlayerCards.length === 0) {
+        console.log(`[mergeOrCreateStoryboard] 添加播放器卡片`);
+        addCard(existingStoryboard.id, {
+          type: "player" as const,
+          x: 0,
+          y: 0,
+          isReady: false,
+          isPlaying: false,
+          playlist: [],
+          currentFrame: 0,
+        } as Omit<PlayerCard, "id">);
+      }
+
+      return existingStoryboard;
+    } else {
+      // 创建新故事板
+      console.log(`[mergeOrCreateStoryboard] 创建新故事板，bookId: ${bookId}`);
+      return null; // 返回 null 表示需要外部创建新故事板
+    }
   };
 
   // ==================== 计算属性 ====================
@@ -397,5 +666,8 @@ export function useCanvas() {
     // 模态框状态
     setActiveModifyCardId,
     setActiveExecuteStoryboardId,
+
+    // 数据融合
+    mergeOrCreateStoryboard,
   };
 }

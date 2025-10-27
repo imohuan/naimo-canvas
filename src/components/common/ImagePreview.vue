@@ -1,7 +1,11 @@
 <template>
   <div>
     <!-- 缩略图 -->
-    <div :class="['cursor-pointer', containerClass]" @click="openPreview">
+    <div
+      :class="['cursor-pointer', containerClass]"
+      @mousedown="handleThumbnailMouseDown"
+      @mouseup="handleThumbnailMouseUp"
+    >
       <img :src="src" :alt="alt" :class="['w-full h-full object-cover', imageClass]" />
     </div>
 
@@ -279,6 +283,11 @@ const dragStartY = ref(0);
 const dragStartTranslateX = ref(0);
 const dragStartTranslateY = ref(0);
 
+// 缩略图点击检测（区分拖拽和点击）
+const thumbnailMouseDownX = ref(0);
+const thumbnailMouseDownY = ref(0);
+const thumbnailMouseMoved = ref(false);
+
 // DOM 引用
 const imageRef = ref<HTMLImageElement | null>(null);
 const imageContainerRef = ref<HTMLDivElement | null>(null);
@@ -310,6 +319,45 @@ const calculateInitialScale = () => {
 const handleImageLoad = () => {
   calculateInitialScale();
   resetTransform();
+};
+
+/** 缩略图鼠标按下 */
+const handleThumbnailMouseDown = (e: MouseEvent) => {
+  thumbnailMouseDownX.value = e.clientX;
+  thumbnailMouseDownY.value = e.clientY;
+  thumbnailMouseMoved.value = false;
+
+  // 监听鼠标移动以检测拖拽
+  const handleMouseMove = (moveEvent: MouseEvent) => {
+    const deltaX = Math.abs(moveEvent.clientX - thumbnailMouseDownX.value);
+    const deltaY = Math.abs(moveEvent.clientY - thumbnailMouseDownY.value);
+
+    // 如果移动超过 5 像素，认为是拖拽
+    if (deltaX > 5 || deltaY > 5) {
+      thumbnailMouseMoved.value = true;
+      document.removeEventListener("mousemove", handleMouseMove);
+    }
+  };
+
+  document.addEventListener("mousemove", handleMouseMove);
+
+  // 鼠标释放时清理监听器
+  const cleanup = () => {
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", cleanup);
+  };
+  document.addEventListener("mouseup", cleanup);
+};
+
+/** 缩略图鼠标释放 */
+const handleThumbnailMouseUp = (e: MouseEvent) => {
+  const deltaX = Math.abs(e.clientX - thumbnailMouseDownX.value);
+  const deltaY = Math.abs(e.clientY - thumbnailMouseDownY.value);
+
+  // 只有在没有移动（或移动很小）时才打开预览
+  if (!thumbnailMouseMoved.value && deltaX <= 5 && deltaY <= 5) {
+    openPreview();
+  }
 };
 
 /** 打开预览 */

@@ -39,4 +39,12 @@ export const canvasConfig = {
 
   /** 最小面板宽度 */
   minPanelWidth: 1000,
+
+  /** 播放器配置 */
+  player: {
+    /** 播放帧率（毫秒/帧） */
+    frameRate: 2000,
+    /** 是否循环播放 */
+    loop: true,
+  },
 } as const;

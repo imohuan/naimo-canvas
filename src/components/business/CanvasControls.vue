@@ -14,11 +14,12 @@
         isThinking && 'opacity-50 pointer-events-none',
       ]"
     >
-      <!-- 角色参考上传 -->
+      <!-- 角色参考上传（支持多张） -->
       <input
         ref="characterInputRef"
         type="file"
         accept="image/*"
+        multiple
         class="hidden"
         @change="handleCharacterUpload"
       />
@@ -34,7 +35,7 @@
         <div
           :class="[
             'flex items-center space-x-2 pointer-events-none',
-            characterReferenceImage && 'hidden',
+            characterReferenceImages.length > 0 && 'hidden',
           ]"
         >
           <svg
@@ -48,8 +49,15 @@
           </svg>
           <span class="text-xs font-semibold">角色</span>
         </div>
+        <!-- 图片数量标签 -->
+        <div
+          v-if="characterReferenceImages.length > 1"
+          class="absolute top-1 left-1 bg-blue-600/80 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs z-10 pointer-events-none"
+        >
+          {{ characterReferenceImages.length }}
+        </div>
         <button
-          v-if="characterReferenceImage"
+          v-if="characterReferenceImages.length > 0"
           class="clear-btn absolute top-1 right-1 bg-red-600/80 hover:bg-red-700 text-white rounded-full w-5 h-5 flex items-center justify-center font-bold text-xs z-10 opacity-0 hover:opacity-100"
           @click.stop="clearCharacterImage"
         >
@@ -159,19 +167,19 @@ const { theme } = useTheme();
 
 interface Props {
   isThinking?: boolean;
-  characterReferenceImage?: string | null;
+  characterReferenceImages?: string[];
   sceneReferenceImage?: string | null;
 }
 
 interface Emits {
-  (e: "generate", prompt: string, charFile: File | null, sceneFile: File | null): void;
-  (e: "update:characterReferenceImage", value: string | null): void;
+  (e: "generate", prompt: string, charFiles: File[], sceneFile: File | null): void;
+  (e: "update:characterReferenceImages", value: string[]): void;
   (e: "update:sceneReferenceImage", value: string | null): void;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   isThinking: false,
-  characterReferenceImage: null,
+  characterReferenceImages: () => [],
   sceneReferenceImage: null,
 });
 
@@ -180,12 +188,12 @@ const emit = defineEmits<Emits>();
 const promptText = ref("");
 const characterInputRef = ref<HTMLInputElement>();
 const sceneInputRef = ref<HTMLInputElement>();
-const characterFile = ref<File | null>(null);
+const characterFiles = ref<File[]>([]);
 const sceneFile = ref<File | null>(null);
 
 const characterImageStyle = computed(() => {
-  if (props.characterReferenceImage) {
-    return { backgroundImage: `url('${props.characterReferenceImage}')` };
+  if (props.characterReferenceImages.length > 0) {
+    return { backgroundImage: `url('${props.characterReferenceImages[0]}')` };
   }
   return {};
 });
@@ -198,11 +206,12 @@ const sceneImageStyle = computed(() => {
 });
 
 const handleCharacterUpload = async (e: Event) => {
-  const file = (e.target as HTMLInputElement).files?.[0];
-  if (file) {
-    characterFile.value = file; // 保存原始文件
-    const base64 = await imageToBase64(file);
-    emit("update:characterReferenceImage", base64);
+  const files = (e.target as HTMLInputElement).files;
+  if (files && files.length > 0) {
+    characterFiles.value = Array.from(files); // 保存所有原始文件
+    const base64Promises = Array.from(files).map((file) => imageToBase64(file));
+    const base64Images = await Promise.all(base64Promises);
+    emit("update:characterReferenceImages", base64Images);
   }
 };
 
@@ -216,8 +225,8 @@ const handleSceneUpload = async (e: Event) => {
 };
 
 const clearCharacterImage = () => {
-  characterFile.value = null; // 清除文件
-  emit("update:characterReferenceImage", null);
+  characterFiles.value = []; // 清除所有文件
+  emit("update:characterReferenceImages", []);
   if (characterInputRef.value) {
     characterInputRef.value.value = "";
   }
@@ -233,7 +242,7 @@ const clearSceneImage = () => {
 
 const handleGenerate = () => {
   if (!promptText.value.trim()) return;
-  emit("generate", promptText.value, characterFile.value, sceneFile.value);
+  emit("generate", promptText.value, characterFiles.value, sceneFile.value);
   promptText.value = "";
 };
 </script>
