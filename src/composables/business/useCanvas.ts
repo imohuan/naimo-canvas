@@ -31,7 +31,7 @@ const state = reactive<CanvasState>({
   nextCardId: persistedNextCardId.value,
   activeModifyCardId: null,
   activeExecuteStoryboardId: null,
-  characterReferenceImage: null,
+  characterReferenceImages: [],
   sceneReferenceImage: null,
   isConnecting: false,
   connectionStart: null,
@@ -447,9 +447,9 @@ export function useCanvas() {
 
   // ==================== 参考图管理 ====================
 
-  /** 设置角色参考图 */
-  const setCharacterReference = (image: string | null) => {
-    state.characterReferenceImage = image;
+  /** 设置角色参考图（支持多张） */
+  const setCharacterReferences = (images: string[]) => {
+    state.characterReferenceImages = images;
   };
 
   /** 设置场景参考图 */
@@ -506,7 +506,7 @@ export function useCanvas() {
     newData: {
       title: string;
       scriptText: string;
-      characterReferenceImageFileId?: string;
+      characterReferenceImageFileIds?: string[];
       sceneReferenceImageFileId?: string;
       cards: Array<{
         shotId?: string | number;
@@ -527,7 +527,7 @@ export function useCanvas() {
       // 更新元数据（但保留位置、尺寸等用户自定义信息）
       existingStoryboard.title = newData.title;
       existingStoryboard.scriptText = newData.scriptText;
-      existingStoryboard.characterReferenceImageFileId = newData.characterReferenceImageFileId;
+      existingStoryboard.characterReferenceImageFileIds = newData.characterReferenceImageFileIds;
       existingStoryboard.sceneReferenceImageFileId = newData.sceneReferenceImageFileId;
 
       // 融合卡片数据
@@ -555,9 +555,19 @@ export function useCanvas() {
             existingCard.title = newCardData.title;
             existingCard.description = newCardData.description;
             existingCard.cameraMovement = newCardData.cameraMovement;
+
+            // 如果新数据中有图片 URL，则更新图片并关闭加载状态
             if (newCardData.imageUrl) {
               existingCard.imageUrl = newCardData.imageUrl;
+              // 如果之前是加载中，现在关闭加载状态
+              if (existingCard.isLoading) {
+                console.log(
+                  `[mergeOrCreateStoryboard] 卡片 shotId: ${shotId} 图片已生成，关闭加载状态`
+                );
+                existingCard.isLoading = false;
+              }
             }
+
             existingCard.rawData = newCardData.rawData;
             updatedCardIds.add(existingCard.id);
           } else {
@@ -655,7 +665,7 @@ export function useCanvas() {
     preparePlayer,
 
     // 参考图管理
-    setCharacterReference,
+    setCharacterReferences,
     setSceneReference,
 
     // 连接拖拽状态

@@ -310,7 +310,7 @@ const emit = defineEmits<Emits>();
 
 const isDragging = ref(false);
 const editedDescription = ref("");
-const useCurrentImage = ref(true); // 是否使用当前图片进行重试
+const useCurrentImage = ref(false); // 是否使用当前图片进行重试
 const textareaRef = ref<HTMLTextAreaElement>();
 
 // 计算属性

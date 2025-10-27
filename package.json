@@ -25,6 +25,7 @@
     "@vueuse/core": "^14.0.0",
     "ai": "^5.0.80",
     "axios": "^1.12.2",
+    "browser-image-compression": "^2.0.2",
     "lodash-es": "^4.17.21",
     "mitt": "^3.0.1",
     "openai": "^6.7.0",

@@ -54,10 +54,10 @@
     <!-- 底部控制条 -->
     <CanvasControls
       :is-thinking="isThinking"
-      :character-reference-image="canvas.state.characterReferenceImage"
+      :character-reference-images="canvas.state.characterReferenceImages"
       :scene-reference-image="canvas.state.sceneReferenceImage"
       @generate="handleGenerate"
-      @update:character-reference-image="canvas.setCharacterReference"
+      @update:character-reference-images="canvas.setCharacterReferences"
       @update:scene-reference-image="canvas.setSceneReference"
     />
 
@@ -210,6 +210,7 @@ import {
   cozeClient,
 } from "@/services/canvas";
 import { canvasConfig } from "@/config";
+import { compressImages, notify } from "@/utils";
 import CanvasCard from "@/components/business/CanvasCard.vue";
 import CanvasStoryboard from "@/components/business/CanvasStoryboard.vue";
 import CanvasControls from "@/components/business/CanvasControls.vue";
@@ -300,34 +301,6 @@ const handleCloseStoryboard = (storyboardId: number) => {
 
 const handleUpdateHeight = () => {
   // 高度更新由组件内部处理，这里可以不做操作
-};
-
-// ==================== 辅助函数 ====================
-
-/**
- * 从工作流返回结果中提取图片 URL
- * 优先使用 output_images，并获取最后一个
- */
-const extractImageUrl = (result: any): string | null => {
-  const split_char = "|!!!|";
-
-  // 尝试从 dataJSON.output_images 中提取
-  if (result?.dataJSON?.output_images && typeof result.dataJSON.output_images === "string") {
-    const images = result.dataJSON.output_images.split(split_char).filter(Boolean);
-    if (images.length > 0) {
-      console.log(`[extractImageUrl] 从 output_images 提取，共 ${images.length} 张，使用最后一张`);
-      return images[images.length - 1];
-    }
-  }
-
-  // 兼容：尝试从 dataJSON.output 中提取
-  if (result?.dataJSON?.output?.[0]) {
-    console.log(`[extractImageUrl] 从 output[0] 提取`);
-    return result.dataJSON.output[0];
-  }
-
-  console.warn(`[extractImageUrl] 未找到有效的图片 URL`);
-  return null;
 };
 
 // ==================== 卡片操作 ====================
@@ -423,8 +396,14 @@ const handleRetryCard = async (cardId: number, newDescription: string) => {
 
     // 从故事板中获取参考图片的 file_id
     const imageFiles: { file_id: string }[] = [];
-    if (storyboard.characterReferenceImageFileId) {
-      imageFiles.push({ file_id: storyboard.characterReferenceImageFileId });
+    // 支持多张角色参考图片
+    if (
+      storyboard.characterReferenceImageFileIds &&
+      storyboard.characterReferenceImageFileIds.length > 0
+    ) {
+      storyboard.characterReferenceImageFileIds.forEach((fileId) => {
+        imageFiles.push({ file_id: fileId });
+      });
     }
     if (storyboard.sceneReferenceImageFileId) {
       imageFiles.push({ file_id: storyboard.sceneReferenceImageFileId });
@@ -432,7 +411,7 @@ const handleRetryCard = async (cardId: number, newDescription: string) => {
 
     console.log(`[handleRetryCard] 使用参考图片:`, imageFiles);
 
-    // 调用生成视频/图片工作流
+    // 调用生成视频/图片工作流（异步执行）
     const result = await generateVideo({
       prompt: newDescription,
       image: imageFiles,
@@ -440,24 +419,28 @@ const handleRetryCard = async (cardId: number, newDescription: string) => {
       id: card.shotId || card.id,
     });
 
-    console.log(`[handleRetryCard] 生成完成:`, result);
+    console.log(`[handleRetryCard] 工作流已提交（异步执行），返回结果:`, result);
+    console.log(`[handleRetryCard] execute_id:`, result?.execute_id);
 
-    // 更新卡片状态（使用辅助函数提取图片 URL）
-    const imageUrl = extractImageUrl(result);
-    if (imageUrl) {
-      canvas.updateCard(cardId, {
-        isLoading: false,
-        imageUrl,
-      });
-      alert("图片重新生成成功！");
+    // GENERATE_VIDEO 是异步工作流，不会立即返回图片 URL
+    // 保持加载状态，等待下次刷新数据时更新
+    if (result?.code === 0) {
+      console.log(`[handleRetryCard] 任务提交成功，卡片保持加载状态`);
+      notify.success(
+        "图片生成任务已提交！\n任务将在后台处理，请稍后刷新页面查看结果。",
+        "提交成功",
+        4000
+      );
+      // 注意：不关闭加载状态，等待数据刷新时自动更新
     } else {
+      // 任务提交失败，关闭加载状态
       canvas.updateCard(cardId, { isLoading: false });
-      alert("图片重新生成失败，返回结果为空");
+      notify.error("任务提交失败，请重试", "提交失败");
     }
   } catch (error) {
-    console.error(`[handleRetryCard] 生成失败:`, error);
+    console.error(`[handleRetryCard] 任务提交失败:`, error);
     canvas.updateCard(cardId, { isLoading: false });
-    alert("图片重新生成失败，请重试");
+    notify.error("任务提交失败，请重试", "提交失败");
   }
 };
 
@@ -597,8 +580,14 @@ const confirmExecute = async () => {
 
     // 从故事板中获取参考图片的 file_id
     const imageFiles: { file_id: string }[] = [];
-    if (storyboard.characterReferenceImageFileId) {
-      imageFiles.push({ file_id: storyboard.characterReferenceImageFileId });
+    // 支持多张角色参考图片
+    if (
+      storyboard.characterReferenceImageFileIds &&
+      storyboard.characterReferenceImageFileIds.length > 0
+    ) {
+      storyboard.characterReferenceImageFileIds.forEach((fileId) => {
+        imageFiles.push({ file_id: fileId });
+      });
     }
     if (storyboard.sceneReferenceImageFileId) {
       imageFiles.push({ file_id: storyboard.sceneReferenceImageFileId });
@@ -607,15 +596,15 @@ const confirmExecute = async () => {
     console.log(`[confirmExecute] 开始批量生图，共 ${imageCards.length} 个节点`);
     console.log(`[confirmExecute] 使用参考图片:`, imageFiles);
 
-    // 批量执行生图任务
+    // 批量执行生图任务（异步提交）
     const tasks = imageCards.map(async (card, index) => {
       try {
-        console.log(`[confirmExecute] 正在生成第 ${index + 1}/${imageCards.length} 个图片...`);
+        console.log(`[confirmExecute] 正在提交第 ${index + 1}/${imageCards.length} 个生图任务...`);
 
         // 设置加载状态
         canvas.updateCard(card.id, { isLoading: true });
 
-        // 调用生成视频/图片工作流
+        // 调用生成视频/图片工作流（异步执行）
         const result = await generateVideo({
           prompt: card.description,
           image: imageFiles,
@@ -623,49 +612,38 @@ const confirmExecute = async () => {
           id: card.shotId || card.id,
         });
 
-        console.log(`[confirmExecute] 第 ${index + 1} 个图片生成完成:`, result);
+        console.log(`[confirmExecute] 第 ${index + 1} 个任务已提交（异步执行）:`, result);
+        console.log(`[confirmExecute] execute_id:`, result?.execute_id);
 
-        // 更新卡片状态（使用辅助函数提取图片 URL）
-        const imageUrl = extractImageUrl(result);
-        if (imageUrl) {
-          canvas.updateCard(card.id, {
-            isLoading: false,
-            imageUrl,
-          });
-        } else {
+        // GENERATE_VIDEO 是异步工作流，不会立即返回图片 URL
+        // 保持加载状态，等待下次刷新数据时更新
+        if (result?.code !== 0) {
+          // 任务提交失败，关闭加载状态
+          console.error(`[confirmExecute] 第 ${index + 1} 个任务提交失败`);
           canvas.updateCard(card.id, { isLoading: false });
         }
+        // 注意：成功时不关闭加载状态，等待数据刷新时自动更新
       } catch (error) {
-        console.error(`[confirmExecute] 第 ${index + 1} 个图片生成失败:`, error);
+        console.error(`[confirmExecute] 第 ${index + 1} 个任务提交失败:`, error);
         canvas.updateCard(card.id, { isLoading: false });
       }
     });
 
-    // 等待所有任务完成
+    // 等待所有任务提交完成
     await Promise.all(tasks);
 
-    console.log(`[confirmExecute] 批量生图完成`);
-    alert(`生图任务已完成，共生成 ${imageCards.length} 张图片`);
+    console.log(`[confirmExecute] 批量生图任务已全部提交`);
+    notify.success(
+      `共提交 ${imageCards.length} 个任务，将在后台处理。\n请稍后刷新页面查看结果。`,
+      "批量生图任务已提交",
+      4000
+    );
 
-    // 生图完成后，准备播放器
-    console.log("[confirmExecute] 开始准备播放器");
-    const playerCard = storyboard.cards.find((c) => c.type === "player");
-    console.log("[confirmExecute] 找到播放器卡片:", playerCard);
-
-    if (playerCard) {
-      console.log(`[confirmExecute] 调用 preparePlayer，playerId: ${playerCard.id}`);
-      canvas.preparePlayer(playerCard.id);
-      console.log("[confirmExecute] preparePlayer 调用完成");
-
-      // 再次检查播放器状态
-      const updatedPlayerCard = canvas.findCardById(playerCard.id);
-      console.log("[confirmExecute] 播放器准备后的状态:", updatedPlayerCard);
-    } else {
-      console.warn("[confirmExecute] ❌ 未找到播放器卡片");
-    }
+    // 注意：由于是异步任务，图片尚未生成，不需要立即准备播放器
+    // 播放器会在下次刷新数据时自动准备
   } catch (error) {
     console.error("[confirmExecute] 批量生图失败:", error);
-    alert("批量生图失败，请重试");
+    notify.error("批量生图失败，请重试", "执行失败");
   } finally {
     isThinking.value = false;
   }
@@ -678,7 +656,7 @@ const handleDownloadStoryboard = async (storyboardId: number) => {
   if (!storyboard) return;
 
   // 使用 JSZip 打包下载（需要安装依赖）
-  alert("下载功能需要安装 jszip 库，暂未实现");
+  notify.warning("下载功能需要安装 jszip 库，暂未实现", "功能开发中");
   console.log("下载故事板:", storyboard);
 };
 
@@ -797,30 +775,50 @@ const handleResetLayout = (storyboardId: number) => {
 
 // ==================== 生成故事板 ====================
 
-const handleGenerate = async (prompt: string, charFile: File | null, sceneFile: File | null) => {
+const handleGenerate = async (prompt: string, charFiles: File[], sceneFile: File | null) => {
   isThinking.value = true;
 
   try {
     const split_char = "|!!!|";
 
+    // 批量压缩图片
+    console.log("[handleGenerate] 开始批量压缩图片");
+    const filesToCompress: File[] = [...charFiles];
+    if (sceneFile) {
+      filesToCompress.push(sceneFile);
+    }
+
+    const compressedFiles = await compressImages(filesToCompress);
+    console.log("[handleGenerate] 图片压缩完成");
+
+    // 分离压缩后的角色图片和场景图片
+    const compressedCharFiles = compressedFiles.slice(0, charFiles.length);
+    const compressedSceneFile = sceneFile ? compressedFiles[charFiles.length] : null;
+
     // 批量上传图片文件并获取 file_id
     console.log("[handleGenerate] 开始批量上传图片");
     const uploadPromises: Promise<{ id: string; type: "char" | "scene" }>[] = [];
 
-    if (charFile) {
-      console.log("[handleGenerate] 添加角色图片到上传队列");
-      uploadPromises.push(
-        cozeClient.uploadFile(charFile).then((result) => {
-          console.log("[handleGenerate] 角色图片上传成功，file_id:", result?.data?.id);
-          return { id: result?.data?.id || "", type: "char" as const };
-        })
-      );
+    // 批量上传多张角色图片
+    if (compressedCharFiles && compressedCharFiles.length > 0) {
+      console.log(`[handleGenerate] 添加 ${compressedCharFiles.length} 张角色图片到上传队列`);
+      compressedCharFiles.forEach((charFile, index) => {
+        uploadPromises.push(
+          cozeClient.uploadFile(charFile).then((result) => {
+            console.log(
+              `[handleGenerate] 角色图片 ${index + 1} 上传成功，file_id:`,
+              result?.data?.id
+            );
+            return { id: result?.data?.id || "", type: "char" as const };
+          })
+        );
+      });
     }
 
-    if (sceneFile) {
+    if (compressedSceneFile) {
       console.log("[handleGenerate] 添加场景图片到上传队列");
       uploadPromises.push(
-        cozeClient.uploadFile(sceneFile).then((result) => {
+        cozeClient.uploadFile(compressedSceneFile).then((result) => {
           console.log("[handleGenerate] 场景图片上传成功，file_id:", result?.data?.id);
           return { id: result?.data?.id || "", type: "scene" as const };
         })
@@ -846,13 +844,24 @@ const handleGenerate = async (prompt: string, charFile: File | null, sceneFile: 
     }
 
     console.log("[handleGenerate] 调用文本转分镜工作流，提示词:", prompt);
-    await textToVideoShots(prompt, workflowParams);
+    const result = await textToVideoShots(prompt, workflowParams);
 
-    console.log("[handleGenerate] 工作流已提交，等待后台处理");
-    alert("生成任务已提交，请稍后刷新查看结果");
+    console.log("[handleGenerate] 工作流已提交（异步执行），返回结果:", result);
+    console.log("[handleGenerate] execute_id:", result?.execute_id);
+
+    // TEXT_TO_VIDEO_SHOTS 是异步工作流，只需显示成功提示
+    if (result?.code === 0) {
+      notify.success(
+        "分镜生成任务已成功提交！\n任务将在后台处理，请稍后刷新页面查看结果。",
+        "提交成功",
+        4000
+      );
+    } else {
+      notify.error("任务提交失败，请重试", "提交失败");
+    }
   } catch (error) {
     console.error("[handleGenerate] 生成失败:", error);
-    alert("生成失败，请重试");
+    notify.error("生成失败，请重试", "生成失败");
   } finally {
     isThinking.value = false;
   }
@@ -891,16 +900,24 @@ const mergeOrCreateStoryboardFromData = (bookId: string, items: any[]) => {
   const scriptText = metadata.scriptText || metadataItem?.script || items[0]?.script || "";
   const referenceImages = metadata.reference_images || metadataItem?.reference_images || "";
 
-  // 解析 reference_images
-  let characterFileId: string | undefined;
+  // 解析 reference_images（支持多张角色图片）
+  let characterFileIds: string[] = [];
   let sceneFileId: string | undefined;
 
   if (referenceImages && typeof referenceImages === "string") {
     const fileIds = referenceImages.split(split_char).filter(Boolean);
     console.log("[mergeOrCreateStoryboardFromData] 解析 reference_images:", fileIds);
 
-    if (fileIds.length > 0) characterFileId = fileIds[0];
-    if (fileIds.length > 1) sceneFileId = fileIds[1];
+    // 假设最后一个是场景图片，其余都是角色图片
+    if (fileIds.length > 1) {
+      sceneFileId = fileIds[fileIds.length - 1];
+      characterFileIds = fileIds.slice(0, -1);
+    } else if (fileIds.length === 1 && fileIds[0]) {
+      characterFileIds = [fileIds[0]];
+    }
+
+    console.log("[mergeOrCreateStoryboardFromData] 角色图片 file_ids:", characterFileIds);
+    console.log("[mergeOrCreateStoryboardFromData] 场景图片 file_id:", sceneFileId);
   }
 
   // 构建卡片数据
@@ -930,13 +947,24 @@ const mergeOrCreateStoryboardFromData = (bookId: string, items: any[]) => {
   const mergedStoryboard = canvas.mergeOrCreateStoryboard(bookId, {
     title,
     scriptText,
-    characterReferenceImageFileId: characterFileId,
+    characterReferenceImageFileIds: characterFileIds,
     sceneReferenceImageFileId: sceneFileId,
     cards: cardsData,
   });
 
   if (mergedStoryboard) {
     console.log(`[mergeOrCreateStoryboardFromData] 已融合故事板，bookId: ${bookId}`);
+
+    // 自动准备播放器（如果有图片卡片）
+    const player = mergedStoryboard.cards.find((c) => c.type === "player");
+    const hasImages = mergedStoryboard.cards.some(
+      (c) => c.type === "image" && (c as ImageCard).imageUrl
+    );
+    if (player && hasImages) {
+      console.log(`[mergeOrCreateStoryboardFromData] 融合后自动准备播放器，playerId: ${player.id}`);
+      canvas.preparePlayer(player.id);
+    }
+
     // 融合成功，不需要重新布局（保留用户调整的位置）
     return;
   }
@@ -976,7 +1004,7 @@ const mergeOrCreateStoryboardFromData = (bookId: string, items: any[]) => {
     width: actualContainerWidth,
     bookId,
     scriptText,
-    characterReferenceImageFileId: characterFileId,
+    characterReferenceImageFileIds: characterFileIds,
     sceneReferenceImageFileId: sceneFileId,
     cards: [],
     connections: [],
@@ -1016,6 +1044,16 @@ const mergeOrCreateStoryboardFromData = (bookId: string, items: any[]) => {
 
   // 自动连接节点
   autoConnectCards(newStoryboard.id);
+
+  // 自动准备播放器（如果有图片卡片）
+  const player = newStoryboard.cards.find((c) => c.type === "player");
+  const hasImages = newStoryboard.cards.some(
+    (c) => c.type === "image" && (c as ImageCard).imageUrl
+  );
+  if (player && hasImages) {
+    console.log(`[mergeOrCreateStoryboardFromData] 自动准备播放器，playerId: ${player.id}`);
+    canvas.preparePlayer(player.id);
+  }
 };
 
 /**

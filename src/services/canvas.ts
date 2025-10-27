@@ -20,7 +20,7 @@ export const cozeClient = createCozeClient({
 export async function textToVideoShots(
   prompt: string,
   options?: Partial<WorkflowInputs<typeof WORKFLOWS.TEXT_TO_VIDEO_SHOTS>>
-) {
+): Promise<any> {
   const result = await cozeClient.runWorkflow("TEXT_TO_VIDEO_SHOTS", {
     prompt,
     system_prompt: WORKFLOWS.TEXT_TO_VIDEO_SHOTS.system_prompt,
@@ -156,7 +156,9 @@ export async function getList(bookId?: string, group = false) {
  * 生成视频
  * @param params 生成视频参数
  */
-export async function generateVideo(params: WorkflowInputs<typeof WORKFLOWS.GENERATE_VIDEO>) {
+export async function generateVideo(
+  params: WorkflowInputs<typeof WORKFLOWS.GENERATE_VIDEO>
+): Promise<any> {
   const result = await cozeClient.runWorkflow("GENERATE_VIDEO", params);
 
   return result;

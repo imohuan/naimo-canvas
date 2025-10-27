@@ -12,6 +12,10 @@ export const WORKFLOWS = {
   /**
    * 文本转视频分镜工作流
    * 用于将长文本智能分割成多个分镜
+   *
+   * 注意：此工作流为异步执行（is_async: true），调用后立即返回执行信息，不会返回实际结果。
+   * 返回格式：{ debug_url, execute_id, detail: { logid }, code, msg }
+   * 需要通过轮询或刷新数据接口获取最终结果。
    */
   TEXT_TO_VIDEO_SHOTS: {
     /** 工作流 ID */
@@ -22,6 +26,8 @@ export const WORKFLOWS = {
     description: "将长文本智能分割成多个段落，支持自定义分割策略",
     /** 系统提示词 */
     system_prompt: textSplitPrompt,
+    /** 是否异步运行（异步工作流不会立即返回结果数据） */
+    is_async: true,
     /** 输入参数定义 */
     inputs: {
       /** 用户输入的文本提示词（必填） */
@@ -72,6 +78,10 @@ export const WORKFLOWS = {
   /**
    * 生成视频工作流
    * 根据图片和文本生成视频
+   *
+   * 注意：此工作流为异步执行（is_async: true），调用后立即返回执行信息，不会返回实际结果。
+   * 返回格式：{ debug_url, execute_id, detail: { logid }, code, msg }
+   * 需要通过轮询或刷新数据接口获取最终结果。
    */
   GENERATE_VIDEO: {
     /** 工作流 ID */
@@ -80,6 +90,8 @@ export const WORKFLOWS = {
     name: "生成视频",
     /** 工作流描述 */
     description: "根据图片和文本生成视频",
+    /** 是否异步运行（异步工作流不会立即返回结果数据） */
+    is_async: true,
     /** 输入参数定义 */
     inputs: {
       /** 文本提示词（可选） */

@@ -103,15 +103,29 @@
         ]"
         @wheel="handleTopicPanelWheel"
       >
-        <!-- 角色参考 -->
-        <template v-if="storyboard.characterReferenceImageFileId">
-          <h4 :class="['text-sm font-semibold mb-2', theme.textSecondary]">角色参考</h4>
-          <ReferenceImagePreview
-            :file-id="storyboard.characterReferenceImageFileId"
-            alt="角色参考"
-            container-class="h-48 rounded-md overflow-hidden"
-            image-class="object-contain"
-          />
+        <!-- 角色参考（支持多张） -->
+        <template
+          v-if="
+            storyboard.characterReferenceImageFileIds &&
+            storyboard.characterReferenceImageFileIds.length > 0
+          "
+        >
+          <h4 :class="['text-sm font-semibold mb-2', theme.textSecondary]">
+            角色参考
+            <span v-if="storyboard.characterReferenceImageFileIds.length > 1" class="text-xs ml-1">
+              ({{ storyboard.characterReferenceImageFileIds.length }} 张)
+            </span>
+          </h4>
+          <div class="space-y-2">
+            <ReferenceImagePreview
+              v-for="(fileId, index) in storyboard.characterReferenceImageFileIds"
+              :key="fileId"
+              :file-id="fileId"
+              :alt="`角色参考 ${index + 1}`"
+              container-class="h-48 rounded-md overflow-hidden"
+              image-class="object-contain!"
+            />
+          </div>
         </template>
 
         <!-- 场景参考 -->

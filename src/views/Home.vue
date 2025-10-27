@@ -1,22 +1,39 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { useRouter } from "vue-router";
-import { useBoolean } from "@/composables";
-import { createCozeClient } from "@/core";
+import { useBoolean, useCozeClient } from "@/composables";
+import { useWorkflowStore } from "@/stores";
+import { notify } from "@/utils";
 
 const router = useRouter();
 const textSplitLoading = useBoolean();
 const getListLoading = useBoolean();
 const uploadLoading = useBoolean();
+const getHistoryLoading = useBoolean();
 
 const uploadedFileId = ref<string>("");
 const uploadedFileName = ref<string>("");
 const selectedFile = ref<File | null>(null);
 const previewUrl = ref<string>("");
 
-const cozeClient = createCozeClient({
-  token: "pat_mIdvTJu7T46eSEmnm3DZNeC9Scb08cYFb90zeMNgFHpW954v74XPYDn5js80otKA",
-});
+// 使用集成了异步任务轮询的 CozeClient
+const cozeClient = useCozeClient(
+  "pat_mIdvTJu7T46eSEmnm3DZNeC9Scb08cYFb90zeMNgFHpW954v74XPYDn5js80otKA",
+  {
+    onAsyncSuccess: (result) => {
+      console.log("异步任务完成，结果:", result);
+      // 这里可以刷新数据、更新 UI 等
+    },
+    onAsyncError: (error) => {
+      console.error("异步任务失败:", error);
+    },
+    onAsyncTimeout: () => {
+      console.warn("异步任务超时");
+    },
+  }
+);
+
+const workflowStore = useWorkflowStore();
 
 function goToChat() {
   router.push("/chat");
@@ -32,6 +49,11 @@ async function handleTextSplit() {
       prompt: "一个小女孩在雨夜行走，3个分镜",
     });
     console.log("文本分割结果:", result);
+
+    // 如果是异步工作流，已自动加入轮询队列
+    if (result.execute_id) {
+      notify.info(`任务已提交，正在后台执行... (Execute ID: ${result.execute_id})`, "异步工作流");
+    }
   });
 }
 
@@ -66,7 +88,7 @@ function handleFileSelect(event: Event) {
 
 async function handleUploadFile() {
   if (!selectedFile.value) {
-    alert("请先选择图片");
+    notify.warning("请先选择图片", "提示");
     return;
   }
 
@@ -96,6 +118,23 @@ async function handleTransformImageFileIdToUrl() {
   });
   console.log("图片ID转URL结果:", result);
 }
+
+async function handleGetWorkflowHistory() {
+  await getHistoryLoading.run(async () => {
+    // 方式1：通过 WorkflowKey（推荐，有智能提示和类型推导）
+    const result = await cozeClient.getWorkflowRunHistory("GENERATE_VIDEO", "7565917147110522922");
+    console.log("工作流执行结果（通过 WorkflowKey）:", result);
+
+    // 方式2：直接传 workflow_id
+    const result2 = await cozeClient.getWorkflowRunHistory(
+      "7565802510557544457",
+      "7565917147110522922"
+    );
+    console.log("工作流执行结果（直接传 ID）:", result2);
+
+    notify.success("获取成功，请查看控制台", "异步工作流结果");
+  });
+}
 </script>
 
 <template>
@@ -103,7 +142,22 @@ async function handleTransformImageFileIdToUrl() {
     class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4"
   >
     <div class="bg-white rounded-2xl shadow-xl p-8 max-w-2xl w-full">
-      <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Coze API 功能演示</h1>
+      <div class="flex items-center justify-between mb-6">
+        <h1 class="text-3xl font-bold text-gray-800">Coze API 功能演示</h1>
+        <!-- 异步任务状态指示器 -->
+        <div
+          v-if="workflowStore.pendingTaskCount > 0"
+          class="flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg"
+        >
+          <div class="relative">
+            <div class="w-2 h-2 bg-blue-500 rounded-full animate-ping absolute"></div>
+            <div class="w-2 h-2 bg-blue-500 rounded-full"></div>
+          </div>
+          <span class="text-sm text-blue-700 font-medium">
+            {{ workflowStore.pendingTaskCount }} 个任务执行中
+          </span>
+        </div>
+      </div>
 
       <div class="space-y-6">
         <!-- 工作流执行 -->
@@ -125,7 +179,7 @@ async function handleTransformImageFileIdToUrl() {
             </svg>
             工作流执行
           </h2>
-          <div class="grid grid-cols-2 gap-4">
+          <div class="grid grid-cols-3 gap-4">
             <button
               @click="handleTextSplit"
               :disabled="textSplitLoading.value.value"
@@ -139,6 +193,13 @@ async function handleTransformImageFileIdToUrl() {
               class="py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
             >
               {{ getListLoading.value.value ? "获取中..." : "获取列表" }}
+            </button>
+            <button
+              @click="handleGetWorkflowHistory"
+              :disabled="getHistoryLoading.value.value"
+              class="py-3 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
+            >
+              {{ getHistoryLoading.value.value ? "获取中..." : "异步结果" }}
             </button>
           </div>
         </div>
