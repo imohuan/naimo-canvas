@@ -10,6 +10,7 @@ alwaysApply: true
 
 - **构建工具**：Vite
 - **样式方案**：Tailwind CSS
+- **UI 组件库**：Volt（基于 PrimeVue + Tailwind CSS 的无样式组件库）
 - **包管理器**：pnpm
 - **路由管理**：Vue Router
 - **状态管理**：Pinia（Setup Store 风格）
@@ -43,6 +44,7 @@ src/
 ├── typings/         # TypeScript 类型声明
 ├── utils/           # 工具函数
 ├── views/           # 页面组件
+├── volt/            # Volt UI 组件（从 PrimeVue 下载的组件）
 └── icons/           # SVG 图标
 ```
 
@@ -60,6 +62,10 @@ src/
 - Pinia 使用 Setup Store 写法
 - lodash-es 按需导入：`import { debounce } from 'lodash-es'`
 - 路由懒加载：`component: () => import('@/views/XXX.vue')`
+- **Volt 组件导入必须使用 `@/volt` 路径别名**：
+  - `import Button from '@/volt/Button.vue'`
+  - `import DataTable from '@/volt/DataTable.vue'`
+  - 禁止使用相对路径导入 Volt 组件（如 `../volt/Button.vue`）
 - **类型导入必须使用 `type` 关键字**：
   - 混合导入：`import { ref, type Ref } from "vue"`
   - 纯类型导入：`import type { UserInfo } from "@/typings/api"`
@@ -79,6 +85,7 @@ src/
 - **[技术栈和初始化](../../docs/tech-stack.md)** - 技术栈详解、初始化指南、依赖配置
 - **[项目结构规范](../../docs/project-structure.md)** - 目录结构、文件命名、图标管理
 - **[配置文件管理](../../docs/config-management.md)** - 配置组织、JSDoc 注释、环境变量
+- **[Volt UI 组件库配置](../../docs/volt-setup.md)** - Volt 安装、配置、使用指南
 
 ### 🎨 设计规范
 
@@ -130,6 +137,12 @@ A: 使用 `useBoolean` Hook 简化布尔状态管理，或使用 `useAsync` 自�
 **Q: HTTP 请求如何封装？**  
 A: 使用 `utils/request.ts` 中的 Axios 封装，已包含失败重试、拦截器和错误处理。
 
+**Q: 如何使用 Volt UI 组件？**  
+A: 使用 `npx volt-vue add [组件名]` 下载组件到 `src/volt/` 目录，然后使用 `@/volt` 路径别名导入，如 `import Button from '@/volt/Button.vue'`。
+
+**Q: Volt 组件如何定制样式？**  
+A: 可通过三种方式：1) 修改 CSS 变量；2) 传递 Tailwind 类到 class 属性；3) 直接修改 `src/volt/` 中的组件文件。
+
 ## 注意事项
 
 - ⚠️ 事件总线监听器必须在组件卸载时清理
@@ -138,6 +151,7 @@ A: 使用 `utils/request.ts` 中的 Axios 封装，已包含失败重试、拦�
 - ⚠️ lodash-es 必须按需导入，避免 `import _ from 'lodash-es'`
 - ⚠️ 不要滥用 Pinia，只存储真正需要共享的状态
 - ⚠️ **类型导入必须添加 `type` 关键字**，避免类型和值混淆
+- ⚠️ **Volt 组件必须使用 `@/volt` 路径别名导入**，禁止使用相对路径
 
 ## 开发工具
 

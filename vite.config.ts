@@ -13,5 +13,13 @@ export default defineConfig({
   server: {
     port: 5173,
     open: true,
+    proxy: {
+      // 代理所有 /api 开头的请求
+      "/api": {
+        target: "http://localhost:23333",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ""),
+      },
+    },
   },
 });
