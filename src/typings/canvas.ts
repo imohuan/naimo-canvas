@@ -78,12 +78,12 @@ export interface Storyboard {
   bookId: string;
   /** 剧本内容 */
   scriptText?: string;
-  /** 角色参考图 URL（已废弃，使用 characterReferenceImageFileId） */
+  /** 角色参考图 URL（已废弃，使用 characterReferenceImageFileIds） */
   characterReferenceImage?: string;
   /** 场景参考图 URL（已废弃，使用 sceneReferenceImageFileId） */
   sceneReferenceImage?: string;
-  /** 角色参考图文件 ID */
-  characterReferenceImageFileId?: string;
+  /** 角色参考图文件 ID 数组（支持多张） */
+  characterReferenceImageFileIds?: string[];
   /** 场景参考图文件 ID */
   sceneReferenceImageFileId?: string;
   /** 卡片列表 */
@@ -112,8 +112,8 @@ export interface CanvasState {
   activeModifyCardId: number | null;
   /** 当前激活的执行故事板 ID */
   activeExecuteStoryboardId: number | null;
-  /** 角色参考图 */
-  characterReferenceImage: string | null;
+  /** 角色参考图数组（支持多张） */
+  characterReferenceImages: string[];
   /** 场景参考图 */
   sceneReferenceImage: string | null;
   /** 是否连接中 */
