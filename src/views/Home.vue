@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { useRouter } from "vue-router";
-import { useBoolean, useCozeClient } from "@/composables";
+import { useBoolean, getCozeClientInstance } from "@/composables";
 import { useWorkflowStore } from "@/stores";
 import { notify } from "@/utils";
 
@@ -16,22 +16,8 @@ const uploadedFileName = ref<string>("");
 const selectedFile = ref<File | null>(null);
 const previewUrl = ref<string>("");
 
-// 使用集成了异步任务轮询的 CozeClient
-const cozeClient = useCozeClient(
-  "pat_mIdvTJu7T46eSEmnm3DZNeC9Scb08cYFb90zeMNgFHpW954v74XPYDn5js80otKA",
-  {
-    onAsyncSuccess: (result) => {
-      console.log("异步任务完成，结果:", result);
-      // 这里可以刷新数据、更新 UI 等
-    },
-    onAsyncError: (error) => {
-      console.error("异步任务失败:", error);
-    },
-    onAsyncTimeout: () => {
-      console.warn("异步任务超时");
-    },
-  }
-);
+// 获取全局 CozeClient 实例（已在 App.vue 中初始化）
+const cozeClient = getCozeClientInstance();
 
 const workflowStore = useWorkflowStore();
 

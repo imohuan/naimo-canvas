@@ -2,16 +2,9 @@
  * 画布相关服务
  */
 
-import { createCozeClient } from "@/core";
+import { getCozeClientInstance } from "@/composables";
 import { WORKFLOWS, type WorkflowInputs } from "@/config/cozeWorkflow";
 import type { ProjectInfo } from "@/typings/canvas";
-
-// 创建 Coze 客户端实例（全局单例）
-export const cozeClient = createCozeClient({
-  token:
-    import.meta.env.VITE_COZE_TOKEN ||
-    "pat_mIdvTJu7T46eSEmnm3DZNeC9Scb08cYFb90zeMNgFHpW954v74XPYDn5js80otKA",
-});
 
 /**
  * 调用文本转分镜工作流
@@ -21,6 +14,7 @@ export async function textToVideoShots(
   prompt: string,
   options?: Partial<WorkflowInputs<typeof WORKFLOWS.TEXT_TO_VIDEO_SHOTS>>
 ): Promise<any> {
+  const cozeClient = getCozeClientInstance();
   const result = await cozeClient.runWorkflow("TEXT_TO_VIDEO_SHOTS", {
     prompt,
     system_prompt: WORKFLOWS.TEXT_TO_VIDEO_SHOTS.system_prompt,
@@ -38,7 +32,7 @@ export async function imageFileIdToUrl(fileIds: string[]) {
   console.log("[imageFileIdToUrl] 请求转换图片 URL，file_ids:", fileIds);
 
   const images = fileIds.map((id) => ({ file_id: id }));
-
+  const cozeClient = getCozeClientInstance();
   const result = await cozeClient.runWorkflow("IMAGE_FILEID_TO_URL", {
     images,
   });
@@ -144,6 +138,7 @@ export const debouncedImageUrlFetcher = new DebouncedImageUrlFetcher();
  * @param group 是否按 book_id 分组，默认 false
  */
 export async function getList(bookId?: string, group = false) {
+  const cozeClient = getCozeClientInstance();
   const result = await cozeClient.runWorkflow("GET_LIST", {
     book_id: bookId || "",
     group,
@@ -159,6 +154,7 @@ export async function getList(bookId?: string, group = false) {
 export async function generateVideo(
   params: WorkflowInputs<typeof WORKFLOWS.GENERATE_VIDEO>
 ): Promise<any> {
+  const cozeClient = getCozeClientInstance();
   const result = await cozeClient.runWorkflow("GENERATE_VIDEO", params);
 
   return result;

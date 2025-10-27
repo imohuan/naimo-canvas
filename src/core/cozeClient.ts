@@ -132,6 +132,7 @@ export class CozeClient {
 
       // 如果是异步工作流且有 executeId，触发异步任务创建回调
       if (is_async && result.execute_id && this.onAsyncTaskCreated) {
+        debugger;
         this.onAsyncTaskCreated({
           workflowId: workflow_id,
           executeId: result.execute_id,
@@ -276,16 +277,37 @@ export class CozeClient {
       const historyItem = response.data.data[0]!;
 
       // 解析 output 字段（需要两次 JSON 解析）
-      let output: any;
-      try {
-        // 第一次解析：将 output 字符串解析为对象
-        const firstParse = JSON.parse(historyItem.output);
-        // 第二次解析：从 Output 字段中提取真正的输出数据
-        const secondParse = JSON.parse(firstParse.Output);
-        output = secondParse.output;
-      } catch (error) {
-        console.error("[CozeClient] 解析工作流输出数据失败:", error);
-        throw new Error("解析工作流输出数据失败");
+      let output: any = null;
+
+      // 只有在任务完成（Success）时才解析输出
+      if (historyItem.execute_status === "Success") {
+        try {
+          // 第一次解析：将 output 字符串解析为对象
+          const firstParse = JSON.parse(historyItem.output);
+
+          // 检查 Output 是否为空字符串
+          if (firstParse.Output && firstParse.Output !== "") {
+            // 第二次解析：从 Output 字段中提取真正的输出数据
+            const secondParse = JSON.parse(firstParse.Output);
+            output = secondParse.output;
+          } else {
+            console.warn("[CozeClient] Output 字段为空，任务可能未返回数据");
+            output = null;
+          }
+        } catch (error) {
+          console.error("[CozeClient] 解析工作流输出数据失败:", error);
+          console.error("[CozeClient] 原始 output:", historyItem.output);
+          // 不抛出错误，而是返回 null，让上层处理
+          output = null;
+        }
+      } else if (historyItem.execute_status === "Running") {
+        // 任务还在运行中，output 为 null
+        console.log("[CozeClient] 任务运行中，暂无输出数据");
+        output = null;
+      } else if (historyItem.execute_status === "Failed") {
+        // 任务失败，output 为 null
+        console.error("[CozeClient] 任务执行失败");
+        output = null;
       }
 
       return {

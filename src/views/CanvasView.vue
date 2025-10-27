@@ -201,16 +201,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
-import { useCanvas, useTheme } from "@/composables";
-import {
-  textToVideoShots,
-  getAllDataGroupedByBookId,
-  generateVideo,
-  cozeClient,
-} from "@/services/canvas";
+import { ref, computed, onMounted, onUnmounted } from "vue";
+import { useCanvas, useTheme, getCozeClientInstance } from "@/composables";
+import { textToVideoShots, getAllDataGroupedByBookId, generateVideo } from "@/services/canvas";
 import { canvasConfig } from "@/config";
 import { compressImages, notify } from "@/utils";
+import { eventBus } from "@/utils/eventBus";
 import CanvasCard from "@/components/business/CanvasCard.vue";
 import CanvasStoryboard from "@/components/business/CanvasStoryboard.vue";
 import CanvasControls from "@/components/business/CanvasControls.vue";
@@ -800,6 +796,7 @@ const handleGenerate = async (prompt: string, charFiles: File[], sceneFile: File
     const uploadPromises: Promise<{ id: string; type: "char" | "scene" }>[] = [];
 
     // 批量上传多张角色图片
+    const cozeClient = getCozeClientInstance();
     if (compressedCharFiles && compressedCharFiles.length > 0) {
       console.log(`[handleGenerate] 添加 ${compressedCharFiles.length} 张角色图片到上传队列`);
       compressedCharFiles.forEach((charFile, index) => {
@@ -1094,9 +1091,39 @@ const loadInitialData = async () => {
   }
 };
 
+// 监听画布刷新事件
+const handleCanvasRefresh = async () => {
+  console.log("[CanvasView] 收到画布刷新事件，开始刷新数据...");
+  await loadInitialData();
+  notify.success("数据已刷新", "异步任务完成");
+};
+
+// 监听工作流完成事件（可选，用于更精细的处理）
+const handleWorkflowCompleted = (data: any) => {
+  console.log("[CanvasView] 工作流完成:", data);
+  // 可以根据 workflowKey 做不同的处理
+  if (data.workflowKey === "GENERATE_VIDEO") {
+    console.log("[CanvasView] 视频生成完成，输出:", data.output);
+  }
+};
+
 // 页面加载时初始化数据
-onMounted(() => {
-  loadInitialData();
+onMounted(async () => {
+  await loadInitialData();
+
+  // 监听画布刷新事件
+  eventBus.on("canvas:refresh", handleCanvasRefresh);
+  eventBus.on("workflow:completed", handleWorkflowCompleted);
+
+  console.log("[CanvasView] 已注册事件监听器");
+});
+
+onUnmounted(() => {
+  // 清理事件监听器
+  eventBus.off("canvas:refresh", handleCanvasRefresh);
+  eventBus.off("workflow:completed", handleWorkflowCompleted);
+
+  console.log("[CanvasView] 已清理事件监听器");
 });
 </script>
 

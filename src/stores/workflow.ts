@@ -40,8 +40,8 @@ export const useWorkflowStore = defineStore("workflow", () => {
   /** 轮询定时器 ID */
   let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-  /** 轮询间隔（毫秒，默认 2 秒） */
-  const pollInterval = ref(2000);
+  /** 轮询间隔（毫秒，默认 3 秒） */
+  const pollInterval = ref(3000);
 
   /** CozeClient 实例（需要从外部注入） */
   let cozeClientInstance: any = null;
