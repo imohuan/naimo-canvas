@@ -1,0 +1,16 @@
+{
+  "plugins": [
+    "typescript",
+    "import"
+  ],
+  "rules": {
+    "typescript/no-explicit-any": "warn",
+    "typescript/no-unused-vars": "error",
+    "import/no-duplicates": "error"
+  },
+  "ignores": [
+    "node_modules",
+    "dist",
+    "*.config.ts"
+  ]
+}
