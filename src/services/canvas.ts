@@ -166,6 +166,7 @@ export async function generateVideo(
 export async function getAllDataGroupedByBookId(): Promise<Record<string, any[]>> {
   try {
     const result = await getList("", false); // 获取全部数据，不分组
+    console.log("[getAllDataGroupedByBookId] 获取全部数据:", result);
     const output = result?.dataJSON?.output;
 
     if (!output || !Array.isArray(output)) {
@@ -195,6 +196,7 @@ export async function getAllDataGroupedByBookId(): Promise<Record<string, any[]>
       });
     });
 
+    console.log("[getAllDataGroupedByBookId] 分组数据:", grouped);
     return grouped;
   } catch (error) {
     console.error("获取数据失败:", error);
@@ -239,6 +241,19 @@ export async function getProjectShots(bookId: string): Promise<any[]> {
     console.error("获取分镜列表失败:", error);
     return [];
   }
+}
+
+/**
+ * 删除数据
+ * @param id 数据 ID（删除单条时传入）
+ * @param bookId 项目 ID（删除整个项目时传入）
+ */
+export async function deleteData(
+  params: WorkflowInputs<typeof WORKFLOWS.DELETE_DATA>
+): Promise<any> {
+  const cozeClient = getCozeClientInstance();
+  const result = await cozeClient.runWorkflow("DELETE_DATA", params);
+  return result;
 }
 
 /**

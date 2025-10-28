@@ -30,8 +30,8 @@ export interface ImageCard extends BaseCard {
   isLoading: boolean;
   /** 图片 URL */
   imageUrl?: string;
-  /** 分镜 ID（对应列表项） */
-  shotId?: number;
+  /** 分镜 ID（对应列表项，字符串类型） */
+  shotId?: string;
   /** 原始数据 */
   rawData?: any;
 }

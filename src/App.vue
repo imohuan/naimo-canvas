@@ -18,7 +18,7 @@ onMounted(() => {
   }
 
   // 初始化全局 CozeClient 实例
-  useCozeClient("pat_mIdvTJu7T46eSEmnm3DZNeC9Scb08cYFb90zeMNgFHpW954v74XPYDn5js80otKA", {
+  useCozeClient(import.meta.env.VITE_COZE_TOKEN, {
     onAsyncSuccess: (result) => {
       console.log("[App] 异步任务完成:", result);
 

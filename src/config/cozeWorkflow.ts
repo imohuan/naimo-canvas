@@ -1,8 +1,6 @@
 import textSplitPrompt from "@/prompts/text_split.md?raw";
 
-export interface ImageFile {
-  file_id: string;
-}
+export type ImageFile = { file_id: string } | string;
 
 /**
  * 所有工作流配置
@@ -103,7 +101,7 @@ export const WORKFLOWS = {
       /** 书籍 ID（必填） */
       book_id: "" as string,
       /** ID（必填） */
-      id: 0 as number,
+      id: "" as string,
     },
     /** 必填参数列表 */
     requiredInputs: ["image", "book_id", "id"] as const,
@@ -121,6 +119,24 @@ export const WORKFLOWS = {
     description: "图片fileid 转 url",
     inputs: {
       images: [] as ImageFile[],
+    },
+  },
+
+  /** 删除数据 */
+  DELETE_DATA: {
+    id: "7565935669340602414",
+    name: "删除数据",
+    description: "删除数据",
+    inputs: {
+      /** 数据 ID（删除单条数据时传入，字符串类型） */
+      id: "" as string,
+      /** 项目 ID（删除整个项目时传入） */
+      book_id: "" as string,
+    },
+    /** 必填参数列表（id 和 book_id 都是可选的，根据删除场景传入） */
+    requiredInputs: [] as const,
+    outputs: {
+      output: [] as any[],
     },
   },
 } as const;

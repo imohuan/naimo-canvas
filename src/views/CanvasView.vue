@@ -32,6 +32,7 @@
           @reset-layout="handleResetLayout"
           @remove-connection="handleRemoveConnection"
           @update-height="handleUpdateHeight"
+          @fullscreen-change="handleFullscreenChange"
         >
           <template #cards>
             <CanvasCard
@@ -53,6 +54,7 @@
 
     <!-- 底部控制条 -->
     <CanvasControls
+      v-show="!isAnyStoryboardFullscreen"
       :is-thinking="isThinking"
       :character-reference-images="canvas.state.characterReferenceImages"
       :scene-reference-image="canvas.state.sceneReferenceImage"
@@ -62,7 +64,10 @@
     />
 
     <!-- 右下角控制按钮 -->
-    <div class="absolute bottom-4 right-4 flex flex-col space-y-2 z-10">
+    <div
+      v-show="!isAnyStoryboardFullscreen"
+      class="absolute bottom-4 right-4 flex flex-col space-y-2 z-10"
+    >
       <button
         :class="[
           'w-10 h-10 backdrop-blur-sm rounded-full flex items-center justify-center text-xl',
@@ -203,8 +208,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useCanvas, useTheme, getCozeClientInstance } from "@/composables";
-import { textToVideoShots, getAllDataGroupedByBookId, generateVideo } from "@/services/canvas";
-import { canvasConfig } from "@/config";
+import {
+  textToVideoShots,
+  getAllDataGroupedByBookId,
+  generateVideo,
+  deleteData,
+} from "@/services/canvas";
+import { canvasConfig, type ImageFile } from "@/config";
 import { compressImages, notify } from "@/utils";
 import { eventBus } from "@/utils/eventBus";
 import CanvasCard from "@/components/business/CanvasCard.vue";
@@ -221,12 +231,16 @@ const canvasRef = ref<HTMLElement>();
 const isThinking = ref(false);
 const showExecuteModal = ref(false);
 const tempConnectionPath = ref("");
+const isAnyStoryboardFullscreen = ref(false);
 
 const canvasStyle = computed(() => canvas.canvasStyle.value);
 
 // ==================== 画布操作 ====================
 
 const handleCanvasMouseDown = (e: MouseEvent) => {
+  // 全屏时禁用平移
+  if (isAnyStoryboardFullscreen.value) return;
+
   if ((e.target as HTMLElement).closest(".storyboard-container")) return;
   if ((e.target as HTMLElement).closest(".canvas-controls")) return;
 
@@ -248,6 +262,12 @@ const handleCanvasMouseDown = (e: MouseEvent) => {
 };
 
 const handleCanvasWheel = (e: WheelEvent) => {
+  // 全屏时禁用缩放
+  if (isAnyStoryboardFullscreen.value) {
+    e.preventDefault();
+    return;
+  }
+
   e.preventDefault();
   if (!canvasContainerRef.value) return;
 
@@ -291,12 +311,49 @@ const handleStoryboardDragStart = (storyboardId: number, e: MouseEvent) => {
   window.addEventListener("mouseup", onMouseUp);
 };
 
-const handleCloseStoryboard = (storyboardId: number) => {
-  canvas.removeStoryboard(storyboardId);
+const handleCloseStoryboard = async (storyboardId: number) => {
+  const storyboard = canvas.findStoryboardById(storyboardId);
+  if (!storyboard || !storyboard.bookId) {
+    console.warn("[handleCloseStoryboard] 未找到故事板或缺少 bookId");
+    canvas.removeStoryboard(storyboardId);
+    return;
+  }
+
+  try {
+    console.log(`[handleCloseStoryboard] 调用 DELETE_DATA 工作流，book_id: ${storyboard.bookId}`);
+
+    // 调用删除工作流
+    const result = await deleteData({
+      book_id: storyboard.bookId,
+      id: "", // 删除整个项目时 id 为空字符串
+    });
+
+    console.log("[handleCloseStoryboard] DELETE_DATA 返回结果:", result);
+
+    // 检查返回的删除数量;
+    const deleteCount = result?.dataJSON?.output || 0;
+
+    console.log(`[handleCloseStoryboard] 删除数量: ${deleteCount}`);
+
+    if (deleteCount >= 1) {
+      // 删除成功，移除本地数据
+      canvas.removeStoryboard(storyboardId);
+      notify.success(`已删除 ${deleteCount} 条数据`, "删除成功");
+    } else {
+      notify.warning("未删除任何数据", "删除失败");
+    }
+  } catch (error) {
+    console.error("[handleCloseStoryboard] 删除失败:", error);
+    notify.error("删除失败，请重试", "删除失败");
+  }
 };
 
 const handleUpdateHeight = () => {
   // 高度更新由组件内部处理，这里可以不做操作
+};
+
+const handleFullscreenChange = (isFullscreen: boolean) => {
+  isAnyStoryboardFullscreen.value = isFullscreen;
 };
 
 // ==================== 卡片操作 ====================
@@ -368,11 +425,57 @@ const handleCardDragStart = (cardId: number, e: MouseEvent) => {
   window.addEventListener("mouseup", onMouseUp);
 };
 
-const handleDeleteCard = (cardId: number) => {
-  canvas.removeCard(cardId);
+const handleDeleteCard = async (cardId: number) => {
+  const card = canvas.findCardById(cardId) as ImageCard;
+  const storyboard = canvas.findStoryboardByCardId(cardId);
+
+  if (!card || !storyboard) {
+    console.warn("[handleDeleteCard] 未找到卡片或故事板");
+    canvas.removeCard(cardId);
+    return;
+  }
+
+  // 获取数据 ID（优先使用 rawData.id，其次使用 shotId）
+  const dataId = card.rawData?.id || card.shotId;
+
+  // 如果没有 ID，直接删除本地数据
+  if (!dataId) {
+    console.log("[handleDeleteCard] 卡片没有数据 ID，直接删除本地数据");
+    canvas.removeCard(cardId);
+    return;
+  }
+
+  try {
+    console.log(
+      `[handleDeleteCard] 调用 DELETE_DATA 工作流，id: ${dataId} (类型: ${typeof dataId})`
+    );
+
+    // 调用删除工作流（删除节点时不携带 book_id）
+    const result = await deleteData({ id: String(dataId) });
+    console.log("[handleDeleteCard] DELETE_DATA 返回结果:", result);
+
+    // 检查返回的删除数量
+    const deleteCount = result?.dataJSON?.output || 0;
+    console.log(`[handleDeleteCard] 删除数量: ${deleteCount}`);
+
+    if (deleteCount >= 1) {
+      // 删除成功，移除本地数据
+      canvas.removeCard(cardId);
+      notify.success("节点已删除", "删除成功");
+    } else {
+      notify.warning("未删除任何数据", "删除失败");
+    }
+  } catch (error) {
+    console.error("[handleDeleteCard] 删除失败:", error);
+    notify.error("删除失败，请重试", "删除失败");
+  }
 };
 
-const handleRetryCard = async (cardId: number, newDescription: string) => {
+const handleRetryCard = async (
+  cardId: number,
+  newDescription: string,
+  useCurrentImage: boolean
+) => {
   const card = canvas.findCardById(cardId) as ImageCard;
   const storyboard = canvas.findStoryboardByCardId(cardId);
 
@@ -383,6 +486,7 @@ const handleRetryCard = async (cardId: number, newDescription: string) => {
 
   try {
     console.log(`[handleRetryCard] 开始重新生成图片，卡片 ID: ${cardId}`);
+    console.log(`[handleRetryCard] 使用当前图片作为参考: ${useCurrentImage}`);
 
     // 更新描述并设置加载状态
     canvas.updateCard(cardId, {
@@ -390,29 +494,36 @@ const handleRetryCard = async (cardId: number, newDescription: string) => {
       isLoading: true,
     });
 
-    // 从故事板中获取参考图片的 file_id
-    const imageFiles: { file_id: string }[] = [];
-    // 支持多张角色参考图片
-    if (
-      storyboard.characterReferenceImageFileIds &&
-      storyboard.characterReferenceImageFileIds.length > 0
-    ) {
-      storyboard.characterReferenceImageFileIds.forEach((fileId) => {
-        imageFiles.push({ file_id: fileId });
-      });
-    }
-    if (storyboard.sceneReferenceImageFileId) {
-      imageFiles.push({ file_id: storyboard.sceneReferenceImageFileId });
-    }
+    // 根据 useCurrentImage 决定使用哪个参考图片
+    const imageFiles: Array<ImageFile> = [];
 
-    console.log(`[handleRetryCard] 使用参考图片:`, imageFiles);
+    if (useCurrentImage && card.imageUrl) {
+      // 使用当前节点的输出图片作为参考（直接传 URL 字符串）
+      imageFiles.push(card.imageUrl);
+      console.log(`[handleRetryCard] 使用当前节点图片作为参考:`, card.imageUrl);
+    } else {
+      // 使用故事板的参考图片（传 file_id 对象）
+      // 支持多张角色参考图片
+      if (
+        storyboard.characterReferenceImageFileIds &&
+        storyboard.characterReferenceImageFileIds.length > 0
+      ) {
+        storyboard.characterReferenceImageFileIds.forEach((fileId) => {
+          imageFiles.push({ file_id: fileId });
+        });
+      }
+      if (storyboard.sceneReferenceImageFileId) {
+        imageFiles.push({ file_id: storyboard.sceneReferenceImageFileId });
+      }
+      console.log(`[handleRetryCard] 使用故事板参考图片:`, imageFiles);
+    }
 
     // 调用生成视频/图片工作流（异步执行）
     const result = await generateVideo({
       prompt: newDescription,
       image: imageFiles,
       book_id: storyboard.bookId || "",
-      id: card.shotId || card.id,
+      id: card.shotId || "",
     });
 
     console.log(`[handleRetryCard] 工作流已提交（异步执行），返回结果:`, result);
@@ -422,11 +533,7 @@ const handleRetryCard = async (cardId: number, newDescription: string) => {
     // 保持加载状态，等待下次刷新数据时更新
     if (result?.code === 0) {
       console.log(`[handleRetryCard] 任务提交成功，卡片保持加载状态`);
-      notify.success(
-        "图片生成任务已提交！\n任务将在后台处理，请稍后刷新页面查看结果。",
-        "提交成功",
-        4000
-      );
+      notify.success("图片生成任务已提交！", "提交成功", 4000);
       // 注意：不关闭加载状态，等待数据刷新时自动更新
     } else {
       // 任务提交失败，关闭加载状态
@@ -458,7 +565,10 @@ const handleConnectStart = (cardId: number) => {
     const sbEl = document.getElementById(`storyboard-${storyboard.id}`);
     const shotPanel = sbEl?.querySelector(".storyboard-shot-panel");
     const cardEl = shotPanel?.querySelector(`#card-${cardId}`);
-    if (!shotPanel || !cardEl) return;
+    if (!shotPanel || !cardEl) {
+      console.warn("[handleConnectStart] 找不到 shotPanel 或 cardEl", { shotPanel, cardEl, sbEl });
+      return;
+    }
 
     // 获取连接点元素
     const connectorDot = cardEl.querySelector('[data-connector-type="out"]');
@@ -467,13 +577,18 @@ const handleConnectStart = (cardId: number) => {
     const sbRect = shotPanel.getBoundingClientRect();
     const dotRect = connectorDot.getBoundingClientRect();
 
+    // 检查是否全屏（通过故事板容器是否是 fixed 定位）
+    const sbContainer = document.getElementById(`storyboard-${storyboard.id}`);
+    const isFullscreen = sbContainer?.classList.contains("fixed");
+    const currentZoom = isFullscreen ? 1 : canvas.state.zoom;
+
     // 起点：连接器的中心点（已考虑缩放）
-    const startX = (dotRect.left - sbRect.left + dotRect.width / 2) / canvas.state.zoom;
-    const startY = (dotRect.top - sbRect.top + dotRect.height / 2) / canvas.state.zoom;
+    const startX = (dotRect.left - sbRect.left + dotRect.width / 2) / currentZoom;
+    const startY = (dotRect.top - sbRect.top + dotRect.height / 2) / currentZoom;
 
     // 终点：鼠标位置（已考虑缩放）
-    const endX = (e.clientX - sbRect.left) / canvas.state.zoom;
-    const endY = (e.clientY - sbRect.top) / canvas.state.zoom;
+    const endX = (e.clientX - sbRect.left) / currentZoom;
+    const endY = (e.clientY - sbRect.top) / currentZoom;
 
     const dx = Math.abs(startX - endX);
     tempConnectionPath.value = `M ${startX} ${startY} C ${startX + dx * 0.5} ${startY}, ${endX - dx * 0.5} ${endY}, ${endX} ${endY}`;
@@ -575,7 +690,7 @@ const confirmExecute = async () => {
     const imageCards = storyboard.cards.filter((card) => card.type === "image");
 
     // 从故事板中获取参考图片的 file_id
-    const imageFiles: { file_id: string }[] = [];
+    const imageFiles: Array<ImageFile> = [];
     // 支持多张角色参考图片
     if (
       storyboard.characterReferenceImageFileIds &&
@@ -605,7 +720,7 @@ const confirmExecute = async () => {
           prompt: card.description,
           image: imageFiles,
           book_id: storyboard.bookId || "",
-          id: card.shotId || card.id,
+          id: card.shotId || "",
         });
 
         console.log(`[confirmExecute] 第 ${index + 1} 个任务已提交（异步执行）:`, result);
@@ -630,7 +745,7 @@ const confirmExecute = async () => {
 
     console.log(`[confirmExecute] 批量生图任务已全部提交`);
     notify.success(
-      `共提交 ${imageCards.length} 个任务，将在后台处理。\n请稍后刷新页面查看结果。`,
+      `共提交 ${imageCards.length} 个任务，将在后台处理。`,
       "批量生图任务已提交",
       4000
     );
@@ -848,11 +963,7 @@ const handleGenerate = async (prompt: string, charFiles: File[], sceneFile: File
 
     // TEXT_TO_VIDEO_SHOTS 是异步工作流，只需显示成功提示
     if (result?.code === 0) {
-      notify.success(
-        "分镜生成任务已成功提交！\n任务将在后台处理，请稍后刷新页面查看结果。",
-        "提交成功",
-        4000
-      );
+      notify.success("分镜生成任务已成功提交！", "提交成功", 4000);
     } else {
       notify.error("任务提交失败，请重试", "提交失败");
     }

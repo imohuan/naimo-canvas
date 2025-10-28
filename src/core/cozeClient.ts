@@ -132,7 +132,6 @@ export class CozeClient {
 
       // 如果是异步工作流且有 executeId，触发异步任务创建回调
       if (is_async && result.execute_id && this.onAsyncTaskCreated) {
-        debugger;
         this.onAsyncTaskCreated({
           workflowId: workflow_id,
           executeId: result.execute_id,

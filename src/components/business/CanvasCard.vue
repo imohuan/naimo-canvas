@@ -267,16 +267,46 @@
         </button>
 
         <!-- 右侧：重试和删除 -->
-        <div class="flex items-center space-x-3">
+        <div class="flex items-center space-x-3 relative">
           <button
             class="action-btn text-yellow-400 hover:text-yellow-300 font-semibold"
-            @click.stop="$emit('retry', card.id, editedDescription)"
+            @click.stop="$emit('retry', card.id, editedDescription, useCurrentImage)"
           >
             重试
           </button>
-          <button class="action-btn hover:text-red-400" @click.stop="$emit('delete', card.id)">
+          <button
+            class="action-btn hover:text-red-400"
+            @click.stop="showDeleteConfirm = !showDeleteConfirm"
+          >
             删除
           </button>
+
+          <!-- 删除确认框 -->
+          <div
+            v-if="showDeleteConfirm"
+            :class="[
+              'absolute right-0 bottom-full mb-2 p-3 rounded-lg shadow-xl border z-50 min-w-[200px]',
+              theme.modalBg,
+              theme.cardBorder,
+            ]"
+            @click.stop
+          >
+            <p :class="['text-sm mb-3', theme.textPrimary]">确认删除此节点？</p>
+            <div class="flex justify-end space-x-2">
+              <button
+                class="px-3 py-1 text-xs rounded bg-gray-600 hover:bg-gray-700 text-white"
+                @click.stop="showDeleteConfirm = false"
+              >
+                取消
+              </button>
+              <button
+                class="px-3 py-1 text-xs rounded bg-red-600 hover:bg-red-700 text-white"
+                @click.stop="handleConfirmDelete"
+              >
+                确认
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </template>
@@ -301,7 +331,7 @@ interface Emits {
   (e: "connect-end", cardId: number): void;
   (e: "toggle-play", cardId: number): void;
   (e: "prepare-player", cardId: number): void;
-  (e: "retry", cardId: number, newDescription: string): void;
+  (e: "retry", cardId: number, newDescription: string, useCurrentImage: boolean): void;
   (e: "delete", cardId: number): void;
 }
 
@@ -312,6 +342,7 @@ const isDragging = ref(false);
 const editedDescription = ref("");
 const useCurrentImage = ref(false); // 是否使用当前图片进行重试
 const textareaRef = ref<HTMLTextAreaElement>();
+const showDeleteConfirm = ref(false); // 显示删除确认框
 
 // 计算属性
 const currentThumbnail = computed(() => {
@@ -423,6 +454,11 @@ const handleTextareaWheel = (e: WheelEvent) => {
     }
   }
   // 如果没有滚动条，允许事件冒泡到画布进行缩放
+};
+
+const handleConfirmDelete = () => {
+  showDeleteConfirm.value = false;
+  emit("delete", props.card.id);
 };
 
 const handleMouseDown = (e: MouseEvent) => {
